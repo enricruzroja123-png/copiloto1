@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copiloto</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .btn-hablar {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            padding: 20px 40px;
+            font-size: 1.5rem;
+            border-radius: 12px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            width: 100%;
+            max-width: 300px;
+        }
+        .btn-hablar:active {
+            background-color: #1e7e34;
+            transform: scale(0.98);
+        }
+        #estado {
+            margin-top: 30px;
+            font-size: 1.2rem;
+            color: #aaa;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>¡Copiloto activado!</h1>
+    
+    <button class="btn-hablar" onclick="hablar()">Probar Voz</button>
+    
+    <div id="estado">Pulsa el botón para probar el sonido</div>
+
+    <script>
+        function hablar() {
+            const texto = "Hola Enrique, el copiloto está listo para la ruta";
+            const estado = document.getElementById('estado');
+
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); // Limpia lecturas anteriores
+                const mensaje = new SpeechSynthesisUtterance(texto);
+                mensaje.lang = 'es-ES';
+                
+                mensaje.onstart = function() {
+                    estado.innerText = "Hablando...";
+                };
+                
+                mensaje.onend = function() {
+                    estado.innerText = "Mensaje completado";
+                };
+
+                window.speechSynthesis.speak(mensaje);
+            } else {
+                estado.innerText = "Tu navegador no soporta síntesis de voz.";
+            }
+        }
+    </script>
+
+</body>
+</html>
