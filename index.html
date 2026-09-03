@@ -3,106 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Guía Digital de Ruta</title>
+    <title>Guía Sonora de Ruta</title>
+    <!-- Carga del motor de IA -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
+        /* Diseño visual mínimo y oscuro para no molestar */
         body {
-            font-family: Arial, sans-serif;
-            background-color: #0f172a;
-            color: #ffffff;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-start;
-            min-height: 100vh;
-            margin: 0;
-            padding: 12px;
-            box-sizing: border-box;
-        }
-        h1 { font-size: 1.4rem; margin: 8px 0; text-align: center; color: #38bdf8; }
-        
-        .camara-container {
-            width: 100%;
-            max-width: 360px;
-            height: 260px;
+            font-family: sans-serif;
             background-color: #000000;
-            border-radius: 14px;
-            overflow: hidden;
-            position: relative;
-            border: 2px solid #334155;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-        }
-        video, canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        canvas { z-index: 10; }
-
-        .panel-botones {
-            width: 100%;
-            max-width: 360px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-top: 14px;
-        }
-        .btn {
-            border: none;
-            padding: 15px;
-            font-size: 1.1rem;
-            font-weight: bold;
-            border-radius: 12px;
-            cursor: pointer;
             color: #ffffff;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-        }
-        .btn-cam { background-color: #16a34a; }
-        .btn-mic { background-color: #0284c7; }
-        .btn:active { transform: scale(0.98); }
-
-        #estado { margin-top: 12px; font-size: 1rem; color: #fbbf24; text-align: center; font-weight: 600; }
-        #registro { 
-            margin-top: 8px; 
-            font-size: 0.9rem; 
-            color: #94a3b8; 
-            text-align: center; 
-            background: #1e293b; 
-            padding: 10px; 
-            border-radius: 8px; 
-            width: 100%; 
-            max-width: 340px; 
+            height: 100vh;
+            margin: 0;
+            padding: 20px;
             box-sizing: border-box;
         }
+        h1 { font-size: 1.5rem; text-align: center; color: #38bdf8; margin-bottom: 30px; }
+        
+        /* Ocultamos la cámara visual, solo necesitamos el procesado */
+        #video, #canvas { display: none; }
+
+        .btn {
+            border: none;
+            padding: 25px;
+            font-size: 1.3rem;
+            font-weight: bold;
+            border-radius: 15px;
+            cursor: pointer;
+            color: #ffffff;
+            width: 100%;
+            max-width: 340px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(255,255,255,0.1);
+        }
+        .btn-activar { background-color: #16a34a; } /* Verde para iniciar */
+        .btn-dbr { background-color: #0284c7; } /* Azul para DBR */
+        
+        #estado { margin-top: 20px; font-size: 1.1rem; color: #fbbf24; text-align: center; }
     </style>
 </head>
 <body>
 
-    <h1>🐾 Guía Digital de Ruta</h1>
+    <h1>🐾 Guía Sonora de Ruta</h1>
 
-    <div class="camara-container">
-        <video id="video" autoplay playsinline muted></video>
-        <canvas id="canvas"></canvas>
-    </div>
+    <!-- Elementos ocultos para el procesado de imagen -->
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
 
-    <div class="panel-botones">
-        <button class="btn btn-cam" onclick="iniciarGuiaDigital()">📷 Activar Visión por Sectores</button>
-        <button class="btn btn-mic" onclick="activarMicrofono()">🎙️ Orden por Voz / DBR</button>
-    </div>
+    <button class="btn btn-activar" onclick="iniciarGuiaSonora()">📷 INICIAR GUÍA SONORA</button>
+    <button class="btn btn-dbr" onclick="activarMicrofonoDBR()">🎙️ REGISTRO DBR (Voz)</button>
 
-    <div id="estado">Pulsa "Activar Visión" para iniciar el escaneo</div>
-    <div id="registro">Estado: Esperando activación...</div>
+    <div id="estado">Pulsa "INICIAR" para activar el radar</div>
 
     <script>
         const estado = document.getElementById('estado');
-        const registro = document.getElementById('registro');
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -110,11 +68,53 @@
         let modeloAI = null;
         let estaHablando = false;
         let ultimoAvisoT = 0;
+        let contextAudio = null;
+        let oscilador = null;
 
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+        // --- SISTEMA SONORO (Sustituye a los colores) ---
+        
+        // Inicializar sonido
+        function initAudio() {
+            if (!contextAudio) {
+                contextAudio = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        // Tocar pitido de alerta (Urgencia)
+        function tocarPitido(frecuencia, duracion, repeticiones) {
+            initAudio();
+            if (oscilador) oscilador.stop();
+
+            oscilador = contextAudio.createOscillator();
+            const gainNode = contextAudio.createGain();
+
+            oscilador.connect(gainNode);
+            gainNode.connect(contextAudio.destination);
+
+            oscilador.type = 'sine'; // Tono suave
+            oscilador.frequency.value = frecuencia; // Frecuencia del pitido
+            gainNode.gain.value = 0.1; // Volumen bajo
+
+            oscilador.start();
+            
+            // Ciclo de pitidos para urgencia
+            let count = 0;
+            const interval = setInterval(() => {
+                gainNode.gain.value = 0.1; // Sonar
+                setTimeout(() => { gainNode.gain.value = 0; }, duracion / 2); // Callar
+                count++;
+                if (count >= repeticiones) {
+                    clearInterval(interval);
+                    setTimeout(() => oscilador.stop(), duracion);
+                }
+            }, duracion);
+        }
+
         function hablar(texto) {
             const ahora = Date.now();
+            // Freno de voz: 3.5 segundos entre avisos
             if ('speechSynthesis' in window && !estaHablando && (ahora - ultimoAvisoT > 3500)) {
                 estaHablando = true;
                 ultimoAvisoT = ahora;
@@ -123,14 +123,15 @@
                 const mensaje = new SpeechSynthesisUtterance(texto);
                 mensaje.lang = 'es-ES';
                 mensaje.onend = () => { estaHablando = false; };
-                mensaje.onerror = () => { estaHablando = false; };
                 
                 window.speechSynthesis.speak(mensaje);
             }
         }
 
-        async function iniciarGuiaDigital() {
-            estado.innerText = "Iniciando motor Guía Digital...";
+        // --- INICIAR GUÍA ---
+        async function iniciarGuiaSonora() {
+            estado.innerText = "Activando radar sonoro...";
+            initAudio(); // Activar audio en el primer clic
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: 'environment' } 
@@ -139,120 +140,98 @@
 
                 modeloAI = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
                 
-                estado.innerText = "Escaneando sectores (IZQ | CENTRO | DER)";
-                hablar("Guía digital activa. Escaneando ruta por sectores.");
+                estado.innerText = "Radar activo (Escuchando ruta)";
+                hablar("Guía sonora activada. Radar de ruta encendido.");
 
                 video.onloadedmetadata = () => {
-                    canvas.width = video.clientWidth;
-                    canvas.height = video.clientHeight;
-                    procesarSectores();
+                    // El canvas se usa internamente para calcular sectores, no para mostrar
+                    canvas.width = 360; 
+                    canvas.height = 270;
+                    procesarRadarSonoro();
                 };
             } catch (err) {
-                estado.innerText = "Error al abrir la cámara o dar permisos";
+                estado.innerText = "Error de cámara o permisos";
+                hablar("Error al activar el radar.");
             }
         }
 
-        async function procesarSectores() {
+        async function procesarRadarSonoro() {
             if (modeloAI && video.readyState === 4) {
                 const predicciones = await modeloAI.detect(video);
                 
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                let peligroDetectado = false;
+                let objetoPeligroso = "";
+                let sectorPeligroso = "";
+                let distanciaMinima = 99;
 
-                // 1. DIBUJAR LÍNEAS DE SECTORES (IZQ - CENTRO - DER)
-                const tercioW = canvas.width / 3;
-                
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-
-                // Línea 1
-                ctx.beginPath(); ctx.moveTo(tercioW, 0); ctx.lineTo(tercioW, canvas.height); ctx.stroke();
-                // Línea 2
-                ctx.beginPath(); ctx.moveTo(tercioW * 2, 0); ctx.lineTo(tercioW * 2, canvas.height); ctx.stroke();
-                ctx.setLineDash([]); // Reset línea continua
-
-                // Etiquetas de sector
-                ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-                ctx.font = "bold 12px Arial";
-                ctx.fillText("IZQ", 10, 20);
-                ctx.fillText("CENTRO", tercioW + 10, 20);
-                ctx.fillText("DER", (tercioW * 2) + 10, 20);
-
-                // 2. DETECTAR OBJETOS Y ASIGNAR SECTOR
                 predicciones.forEach(pred => {
-                    if (pred.score > 0.45) {
+                    if (pred.score > 0.5) {
                         const [x, y, width, height] = pred.bbox;
+                        
+                        // Procesado interno de sectores (IZQ | CENTRO | DER)
+                        const tercioW = video.videoWidth / 3;
+                        const centroX = x + (width / 2);
+                        let sector = "centro";
+                        if (centroX < tercioW) sector = "izquierda";
+                        else if (centroX > tercioW * 2) sector = "derecha";
 
-                        const scaleX = canvas.width / video.videoWidth;
-                        const scaleY = canvas.height / video.videoHeight;
+                        // Estimación rápida de distancia (2m - 15m)
+                        const metros = Math.max(2, Math.round(15 * (1 - (height / video.videoHeight))));
 
-                        const boxX = x * scaleX;
-                        const boxY = y * scaleY;
-                        const boxW = width * scaleX;
-                        const boxH = height * scaleY;
-
-                        // Determinar sector según la posición del centro del objeto
-                        const centroX = boxX + (boxW / 2);
-                        let sector = "CENTRO";
-                        if (centroX < tercioW) sector = "IZQ";
-                        else if (centroX > tercioW * 2) sector = "DER";
-
-                        // Estimación rápida de distancia en metros (relativa al alto)
-                        const metros = Math.max(2, Math.round(15 * (1 - (boxH / canvas.height))));
-
-                        // Color según distancia
-                        let colorCuadro = "#22c55e"; // Verde
-                        if (metros <= 4) colorCuadro = "#ef4444"; // Rojo peligro
-                        else if (metros <= 8) colorCuadro = "#f59e0b"; // Naranja
-
-                        // Dibujar caja
-                        ctx.strokeStyle = colorCuadro;
-                        ctx.lineWidth = 3;
-                        ctx.strokeRect(boxX, boxY, boxW, boxH);
-
-                        // Etiqueta superior
-                        const nombreObjeto = traducir(pred.class);
-                        ctx.fillStyle = colorCuadro;
-                        ctx.font = "bold 14px Arial";
-                        ctx.fillText(`${nombreObjeto} (${sector}) ${metros}m`, boxX, boxY > 20 ? boxY - 6 : 20);
-
-                        // Alerta hablada según peligro
-                        if (metros <= 5) {
-                            hablar(`Atención: ${nombreObjeto} por la ${sector} a ${metros} metros.`);
-                            registro.innerText = `INSTANTÁNEO: Alerta ${nombreObjeto} (${sector}) a ${metros}m`;
+                        // Lógica de alerta por sonido
+                        if (metros <= 8) {
+                            peligroDetectado = true;
+                            if (metros < distanciaMinima) {
+                                distanciaMinima = metros;
+                                objetoPeligroso = traducir(pred.class);
+                                sectorPeligroso = sector;
+                            }
                         }
                     }
                 });
+
+                // --- EMITIR ALERTAS SONORAS ---
+                if (peligroDetectado) {
+                    // 1. Alerta por Tono (Urgencia)
+                    if (distanciaMinima <= 4) {
+                        // Peligro Cerca: Pitido rápido y agudo
+                        tocarPitido(800, 150, 3); 
+                    } else {
+                        // Distancia Media: Pitido lento y grave
+                        tocarPitido(400, 400, 1);
+                    }
+
+                    // 2. Alerta por Voz (Ubicación)
+                    hablar(`${objetoPeligroso}, ${sectorPeligroso}.`);
+                }
             }
-            setTimeout(() => { requestAnimationFrame(procesarSectores); }, 120);
+            // Escaneo constante
+            setTimeout(() => { requestAnimationFrame(procesarRadarSonoro); }, 200);
         }
 
         function traducir(clase) {
             switch(clase) {
-                case 'person': return 'PEATÓN';
-                case 'car': return 'COCHE';
-                case 'dog': return 'PERRO';
-                case 'cat': return 'ANIMAL';
-                case 'bus': return 'AUTOBÚS';
-                case 'truck': return 'CAMIÓN';
-                default: return 'OBSTÁCULO';
+                case 'person': return 'Peatón';
+                case 'car': return 'Coche';
+                case 'dog': return 'Perro';
+                case 'cat': return 'Animal';
+                default: return 'Obstáculo';
             }
         }
 
-        function activarMicrofono() {
+        // --- REGISTRO DBR (VOZ) ---
+        function activarMicrofonoDBR() {
             if (!Recognition) return;
+            hablar("Diga el evento para guardar en DBR.");
             const recon = new Recognition();
             recon.lang = 'es-ES';
-            recon.onstart = () => { estado.innerText = "Escuchando orden de voz..."; };
             recon.onresult = (e) => {
                 const cmd = e.results[0][0].transcript.toLowerCase();
-                registro.innerText = 'Voz capturada: "' + cmd + '"';
                 if (cmd.includes('dbr') || cmd.includes('registro')) {
-                    hablar("Evento DBR guardado en coordenadas actuales.");
+                    hablar("Trámite DBR registrado.");
                 } else {
-                    hablar("Comando registrado: " + cmd);
+                    hablar("Registro guardado: " + cmd);
                 }
-                estado.innerText = "Guía Digital lista";
             };
             recon.start();
         }
