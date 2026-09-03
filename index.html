@@ -19,24 +19,19 @@
             box-sizing: border-box;
         }
         h1 { font-size: 1.6rem; margin: 10px 0; text-align: center; color: #4fc3f7; }
-        
-        /* Contenedor de Cámara */
         .camara-box {
             width: 100%;
             max-width: 360px;
             height: 220px;
-            background-color: #000;
+            background-color: #000000;
             border-radius: 12px;
             overflow: hidden;
-            border: 2px solid #333;
+            border: 2px solid #333333;
             display: flex;
             justify-content: center;
             align-items: center;
-            position: relative;
         }
         video { width: 100%; height: 100%; object-fit: cover; }
-        
-        /* Botones principales */
         .panel-botones {
             width: 100%;
             max-width: 360px;
@@ -52,34 +47,29 @@
             font-weight: bold;
             border-radius: 10px;
             cursor: pointer;
-            color: white;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+            color: #ffffff;
         }
         .btn-cam { background-color: #2e7d32; }
         .btn-mic { background-color: #0288d1; }
-        .btn:active { transform: scale(0.98); }
-
-        /* Indicadores de estado */
         #estado { margin-top: 15px; font-size: 1.1rem; color: #ffca28; text-align: center; }
-        #registro { margin-top: 8px; font-size: 0.95rem; color: #b0bec5; text-align: center; max-width: 340px; }
+        #registro { margin-top: 8px; font-size: 0.95rem; color: #b0bec5; text-align: center; }
     </style>
 </head>
 <body>
 
     <h1>Copiloto de Ruta</h1>
 
-    <!-- Pantalla de la Cámara -->
     <div class="camara-box">
         <video id="video" autoplay playsinline muted></video>
     </div>
 
     <div class="panel-botones">
-        <button class="btn btn-cam" onclick="iniciarCamara()">📷 Activar Cámara</button>
-        <button class="btn btn-mic" onclick="activarMicrofono()">🎙️ Activar Voz / Hablar</button>
+        <button class="btn btn-cam" onclick="iniciarCamara()">Activar Camara</button>
+        <button class="btn btn-mic" onclick="activarMicrofono()">Activar Voz / Hablar</button>
     </div>
 
     <div id="estado">Presiona los botones para iniciar</div>
-    <div id="registro">Esperando órdenes de voz...</div>
+    <div id="registro">Esperando ordenes de voz...</div>
 
     <script>
         const estado = document.getElementById('estado');
@@ -97,24 +87,22 @@
             }
         }
 
-        // Encender la cámara trasera del móvil
         async function iniciarCamara() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "environment" } 
+                    video: { facingMode: 'environment' } 
                 });
                 video.srcObject = stream;
-                estado.innerText = "Cámara de ruta activa";
-                hablar("Cámara de ruta activada.");
+                estado.innerText = 'Camara de ruta activa';
+                hablar('Camara de ruta activada.');
             } catch (err) {
-                estado.innerText = "Error o permiso de cámara denegado";
+                estado.innerText = 'Error o permiso de camara denegado';
             }
         }
 
-        // Reconocimiento de voz
         function activarMicrofono() {
             if (!Recognition) {
-                estado.innerText = "Navegador sin soporte de voz";
+                estado.innerText = 'Navegador sin soporte de voz';
                 return;
             }
 
@@ -122,29 +110,29 @@
             recon.lang = 'es-ES';
 
             recon.onstart = function() {
-                estado.innerText = "Escuchando en ruta...";
+                estado.innerText = 'Escuchando en ruta...';
             };
 
             recon.onresult = function(event) {
                 const comando = event.results[0][0].transcript.toLowerCase();
-                registro.innerText = 'Dicho: "' + comando + '"';
+                registro.innerText = 'Dicho: ' + comando;
 
-                if (comando.includes("coche")) {
-                    hablar("Atención, coche registrado.");
-                } else if (comando.includes("perro") || comando.includes("animal")) {
-                    hablar("Precaución, alerta de animal en ruta.");
-                } else if (comando.includes("persona") || comando.includes("peatón")) {
-                    hablar("Precaución, peatón detectado.");
-                } else if (comando.includes("dbr") || comando.includes("tramite")) {
-                    hablar("Registro DBR guardado correctamente.");
+                if (comando.includes('coche')) {
+                    hablar('Atencion, coche registrado.');
+                } else if (comando.includes('perro') || comando.includes('animal')) {
+                    hablar('Precaucion, alerta de animal en ruta.');
+                } else if (comando.includes('persona') || comando.includes('peaton')) {
+                    hablar('Precaucion, peaton detectado.');
+                } else if (comando.includes('dbr') || comando.includes('tramite')) {
+                    hablar('Registro DBR guardado correctamente.');
                 } else {
-                    hablar("Comando recibido: " + comando);
+                    hablar('Comando recibido: ' + comando);
                 }
-                estado.innerText = "Copiloto listo";
+                estado.innerText = 'Copiloto listo';
             };
 
             recon.onerror = function() {
-                estado.innerText = "Error en el micrófono";
+                estado.innerText = 'Error en el microfono';
             };
 
             recon.start();
