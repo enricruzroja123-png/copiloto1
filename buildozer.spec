@@ -1,3 +1,4 @@
+[app]
 title = Copiloto
 package.name = copiloto
 package.domain = org.enrique
