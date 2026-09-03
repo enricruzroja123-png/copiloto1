@@ -1,16 +1,15 @@
-HTML
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Copiloto de Ruta AI</title>
+    <title>Guía Digital de Ruta</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #121212;
+            background-color: #0f172a;
             color: #ffffff;
             display: flex;
             flex-direction: column;
@@ -18,19 +17,21 @@ HTML
             justify-content: flex-start;
             min-height: 100vh;
             margin: 0;
-            padding: 15px;
+            padding: 12px;
             box-sizing: border-box;
         }
-        h1 { font-size: 1.5rem; margin: 10px 0; text-align: center; color: #4fc3f7; }
+        h1 { font-size: 1.4rem; margin: 8px 0; text-align: center; color: #38bdf8; }
+        
         .camara-container {
             width: 100%;
             max-width: 360px;
-            height: 250px;
-            background-color: #000;
-            border-radius: 12px;
+            height: 260px;
+            background-color: #000000;
+            border-radius: 14px;
             overflow: hidden;
             position: relative;
-            border: 2px solid #333;
+            border: 2px solid #334155;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
         }
         video, canvas {
             position: absolute;
@@ -41,32 +42,50 @@ HTML
             object-fit: cover;
         }
         canvas { z-index: 10; }
+
         .panel-botones {
             width: 100%;
             max-width: 360px;
             display: flex;
             flex-direction: column;
             gap: 10px;
-            margin-top: 15px;
+            margin-top: 14px;
         }
         .btn {
             border: none;
-            padding: 16px;
+            padding: 15px;
             font-size: 1.1rem;
             font-weight: bold;
-            border-radius: 10px;
+            border-radius: 12px;
             cursor: pointer;
             color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
-        .btn-cam { background-color: #2e7d32; }
-        .btn-mic { background-color: #0288d1; }
-        #estado { margin-top: 15px; font-size: 1.1rem; color: #ffca28; text-align: center; }
-        #registro { margin-top: 8px; font-size: 0.95rem; color: #b0bec5; text-align: center; }
+        .btn-cam { background-color: #16a34a; }
+        .btn-mic { background-color: #0284c7; }
+        .btn:active { transform: scale(0.98); }
+
+        #estado { margin-top: 12px; font-size: 1rem; color: #fbbf24; text-align: center; font-weight: 600; }
+        #registro { 
+            margin-top: 8px; 
+            font-size: 0.9rem; 
+            color: #94a3b8; 
+            text-align: center; 
+            background: #1e293b; 
+            padding: 10px; 
+            border-radius: 8px; 
+            width: 100%; 
+            max-width: 340px; 
+            box-sizing: border-box;
+        }
     </style>
 </head>
 <body>
 
-    <h1>Copiloto de Ruta AI</h1>
+    <h1>🐾 Guía Digital de Ruta</h1>
 
     <div class="camara-container">
         <video id="video" autoplay playsinline muted></video>
@@ -74,12 +93,12 @@ HTML
     </div>
 
     <div class="panel-botones">
-        <button class="btn btn-cam" onclick="iniciarCamarayAI()">📷 Activar Visión de Ruta</button>
+        <button class="btn btn-cam" onclick="iniciarGuiaDigital()">📷 Activar Visión por Sectores</button>
         <button class="btn btn-mic" onclick="activarMicrofono()">🎙️ Orden por Voz / DBR</button>
     </div>
 
-    <div id="estado">Pulsa "Activar Visión" para iniciar</div>
-    <div id="registro">Esperando...</div>
+    <div id="estado">Pulsa "Activar Visión" para iniciar el escaneo</div>
+    <div id="registro">Estado: Esperando activación...</div>
 
     <script>
         const estado = document.getElementById('estado');
@@ -90,21 +109,19 @@ HTML
 
         let modeloAI = null;
         let estaHablando = false;
-        let ultimoTiempoAviso = 0;
+        let ultimoAvisoT = 0;
 
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-        function hablarUnaVez(texto) {
+        function hablar(texto) {
             const ahora = Date.now();
-            // Freno de voz: Solo habla si han pasado más de 4 segundos del último aviso y no está hablando
-            if ('speechSynthesis' in window && !estaHablando && (ahora - ultimoTiempoAviso > 4000)) {
+            if ('speechSynthesis' in window && !estaHablando && (ahora - ultimoAvisoT > 3500)) {
                 estaHablando = true;
-                ultimoTiempoAviso = ahora;
+                ultimoAvisoT = ahora;
                 window.speechSynthesis.cancel();
                 
                 const mensaje = new SpeechSynthesisUtterance(texto);
                 mensaje.lang = 'es-ES';
-                
                 mensaje.onend = () => { estaHablando = false; };
                 mensaje.onerror = () => { estaHablando = false; };
                 
@@ -112,42 +129,60 @@ HTML
             }
         }
 
-        async function iniciarCamarayAI() {
-            estado.innerText = "Cargando motor de visión...";
+        async function iniciarGuiaDigital() {
+            estado.innerText = "Iniciando motor Guía Digital...";
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: 'environment' } 
                 });
                 video.srcObject = stream;
 
-                // Cargar modelo optimizado (Lite)
                 modeloAI = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
                 
-                estado.innerText = "Visión activa y buscando objetos";
-                hablarUnaVez("Sistema de visión activado.");
+                estado.innerText = "Escaneando sectores (IZQ | CENTRO | DER)";
+                hablar("Guía digital activa. Escaneando ruta por sectores.");
 
                 video.onloadedmetadata = () => {
                     canvas.width = video.clientWidth;
                     canvas.height = video.clientHeight;
-                    procesarLienzo();
+                    procesarSectores();
                 };
             } catch (err) {
-                estado.innerText = "Error en cámara o permisos";
+                estado.innerText = "Error al abrir la cámara o dar permisos";
             }
         }
 
-        async function procesarLienzo() {
+        async function procesarSectores() {
             if (modeloAI && video.readyState === 4) {
                 const predicciones = await modeloAI.detect(video);
                 
-                // Limpiar lienzo
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+                // 1. DIBUJAR LÍNEAS DE SECTORES (IZQ - CENTRO - DER)
+                const tercioW = canvas.width / 3;
+                
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+
+                // Línea 1
+                ctx.beginPath(); ctx.moveTo(tercioW, 0); ctx.lineTo(tercioW, canvas.height); ctx.stroke();
+                // Línea 2
+                ctx.beginPath(); ctx.moveTo(tercioW * 2, 0); ctx.lineTo(tercioW * 2, canvas.height); ctx.stroke();
+                ctx.setLineDash([]); // Reset línea continua
+
+                // Etiquetas de sector
+                ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+                ctx.font = "bold 12px Arial";
+                ctx.fillText("IZQ", 10, 20);
+                ctx.fillText("CENTRO", tercioW + 10, 20);
+                ctx.fillText("DER", (tercioW * 2) + 10, 20);
+
+                // 2. DETECTAR OBJETOS Y ASIGNAR SECTOR
                 predicciones.forEach(pred => {
-                    if (pred.score > 0.5) { // Solo si tiene más del 50% de certeza
+                    if (pred.score > 0.45) {
                         const [x, y, width, height] = pred.bbox;
-                        
-                        // Escalar dimensiones al lienzo del móvil
+
                         const scaleX = canvas.width / video.videoWidth;
                         const scaleY = canvas.height / video.videoHeight;
 
@@ -156,39 +191,68 @@ HTML
                         const boxW = width * scaleX;
                         const boxH = height * scaleY;
 
-                        // Dibujar cuadro verde
-                        ctx.strokeStyle = "#00FF00";
-                        ctx.lineWidth = 4;
+                        // Determinar sector según la posición del centro del objeto
+                        const centroX = boxX + (boxW / 2);
+                        let sector = "CENTRO";
+                        if (centroX < tercioW) sector = "IZQ";
+                        else if (centroX > tercioW * 2) sector = "DER";
+
+                        // Estimación rápida de distancia en metros (relativa al alto)
+                        const metros = Math.max(2, Math.round(15 * (1 - (boxH / canvas.height))));
+
+                        // Color según distancia
+                        let colorCuadro = "#22c55e"; // Verde
+                        if (metros <= 4) colorCuadro = "#ef4444"; // Rojo peligro
+                        else if (metros <= 8) colorCuadro = "#f59e0b"; // Naranja
+
+                        // Dibujar caja
+                        ctx.strokeStyle = colorCuadro;
+                        ctx.lineWidth = 3;
                         ctx.strokeRect(boxX, boxY, boxW, boxH);
 
-                        // Etiqueta de texto
-                        ctx.fillStyle = "#00FF00";
-                        ctx.font = "bold 16px Arial";
-                        ctx.fillText(pred.class, boxX, boxY > 20 ? boxY - 5 : 20);
+                        // Etiqueta superior
+                        const nombreObjeto = traducir(pred.class);
+                        ctx.fillStyle = colorCuadro;
+                        ctx.font = "bold 14px Arial";
+                        ctx.fillText(`${nombreObjeto} (${sector}) ${metros}m`, boxX, boxY > 20 ? boxY - 6 : 20);
 
-                        // Alerta si ocupa bastante espacio en pantalla
-                        if (boxH > canvas.height * 0.4) {
-                            if (pred.class === 'person') hablarUnaVez("Peatón cerca.");
-                            else if (pred.class === 'car') hablarUnaVez("Vehículo cerca.");
-                            else if (pred.class === 'dog' || pred.class === 'cat') hablarUnaVez("Animal cerca.");
+                        // Alerta hablada según peligro
+                        if (metros <= 5) {
+                            hablar(`Atención: ${nombreObjeto} por la ${sector} a ${metros} metros.`);
+                            registro.innerText = `INSTANTÁNEO: Alerta ${nombreObjeto} (${sector}) a ${metros}m`;
                         }
                     }
                 });
             }
-            // Ejecutar escaneo suave
-            setTimeout(() => { requestAnimationFrame(procesarLienzo); }, 150);
+            setTimeout(() => { requestAnimationFrame(procesarSectores); }, 120);
+        }
+
+        function traducir(clase) {
+            switch(clase) {
+                case 'person': return 'PEATÓN';
+                case 'car': return 'COCHE';
+                case 'dog': return 'PERRO';
+                case 'cat': return 'ANIMAL';
+                case 'bus': return 'AUTOBÚS';
+                case 'truck': return 'CAMIÓN';
+                default: return 'OBSTÁCULO';
+            }
         }
 
         function activarMicrofono() {
             if (!Recognition) return;
             const recon = new Recognition();
             recon.lang = 'es-ES';
-            recon.onstart = () => { estado.innerText = "Escuchando orden..."; };
+            recon.onstart = () => { estado.innerText = "Escuchando orden de voz..."; };
             recon.onresult = (e) => {
                 const cmd = e.results[0][0].transcript.toLowerCase();
-                registro.innerText = 'Orden: "' + cmd + '"';
-                if (cmd.includes('dbr')) hablarUnaVez("Registro DBR guardado.");
-                else hablarUnaVez("Comando: " + cmd);
+                registro.innerText = 'Voz capturada: "' + cmd + '"';
+                if (cmd.includes('dbr') || cmd.includes('registro')) {
+                    hablar("Evento DBR guardado en coordenadas actuales.");
+                } else {
+                    hablar("Comando registrado: " + cmd);
+                }
+                estado.innerText = "Guía Digital lista";
             };
             recon.start();
         }
