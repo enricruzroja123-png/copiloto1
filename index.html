@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Copiloto</title>
+    <title>Copiloto de Ruta</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -12,71 +12,142 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            height: 100vh;
+            justify-content: flex-start;
+            min-height: 100vh;
             margin: 0;
-            padding: 20px;
+            padding: 15px;
             box-sizing: border-box;
         }
-        h1 {
-            font-size: 2rem;
-            margin-bottom: 30px;
-            text-align: center;
-        }
-        .btn-hablar {
-            background-color: #28a745;
-            color: white;
-            border: none;
-            padding: 20px 40px;
-            font-size: 1.5rem;
-            border-radius: 12px;
-            cursor: pointer;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        h1 { font-size: 1.6rem; margin: 10px 0; text-align: center; color: #4fc3f7; }
+        
+        /* Contenedor de Cámara */
+        .camara-box {
             width: 100%;
-            max-width: 300px;
+            max-width: 360px;
+            height: 220px;
+            background-color: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
         }
-        .btn-hablar:active {
-            background-color: #1e7e34;
-            transform: scale(0.98);
+        video { width: 100%; height: 100%; object-fit: cover; }
+        
+        /* Botones principales */
+        .panel-botones {
+            width: 100%;
+            max-width: 360px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 15px;
         }
-        #estado {
-            margin-top: 30px;
+        .btn {
+            border: none;
+            padding: 16px;
             font-size: 1.2rem;
-            color: #aaa;
-            text-align: center;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            color: white;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.4);
         }
+        .btn-cam { background-color: #2e7d32; }
+        .btn-mic { background-color: #0288d1; }
+        .btn:active { transform: scale(0.98); }
+
+        /* Indicadores de estado */
+        #estado { margin-top: 15px; font-size: 1.1rem; color: #ffca28; text-align: center; }
+        #registro { margin-top: 8px; font-size: 0.95rem; color: #b0bec5; text-align: center; max-width: 340px; }
     </style>
 </head>
 <body>
 
-    <h1>¡Copiloto activado!</h1>
-    
-    <button class="btn-hablar" onclick="hablar()">Probar Voz</button>
-    
-    <div id="estado">Pulsa el botón para probar el sonido</div>
+    <h1>Copiloto de Ruta</h1>
+
+    <!-- Pantalla de la Cámara -->
+    <div class="camara-box">
+        <video id="video" autoplay playsinline muted></video>
+    </div>
+
+    <div class="panel-botones">
+        <button class="btn btn-cam" onclick="iniciarCamara()">📷 Activar Cámara</button>
+        <button class="btn btn-mic" onclick="activarMicrofono()">🎙️ Activar Voz / Hablar</button>
+    </div>
+
+    <div id="estado">Presiona los botones para iniciar</div>
+    <div id="registro">Esperando órdenes de voz...</div>
 
     <script>
-        function hablar() {
-            const texto = "Hola Enrique, el copiloto está listo para la ruta";
-            const estado = document.getElementById('estado');
+        const estado = document.getElementById('estado');
+        const registro = document.getElementById('registro');
+        const video = document.getElementById('video');
 
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        function hablar(texto) {
             if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel(); // Limpia lecturas anteriores
+                window.speechSynthesis.cancel();
                 const mensaje = new SpeechSynthesisUtterance(texto);
                 mensaje.lang = 'es-ES';
-                
-                mensaje.onstart = function() {
-                    estado.innerText = "Hablando...";
-                };
-                
-                mensaje.onend = function() {
-                    estado.innerText = "Mensaje completado";
-                };
-
                 window.speechSynthesis.speak(mensaje);
-            } else {
-                estado.innerText = "Tu navegador no soporta síntesis de voz.";
             }
+        }
+
+        // Encender la cámara trasera del móvil
+        async function iniciarCamara() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "environment" } 
+                });
+                video.srcObject = stream;
+                estado.innerText = "Cámara de ruta activa";
+                hablar("Cámara de ruta activada.");
+            } catch (err) {
+                estado.innerText = "Error o permiso de cámara denegado";
+            }
+        }
+
+        // Reconocimiento de voz
+        function activarMicrofono() {
+            if (!Recognition) {
+                estado.innerText = "Navegador sin soporte de voz";
+                return;
+            }
+
+            const recon = new Recognition();
+            recon.lang = 'es-ES';
+
+            recon.onstart = function() {
+                estado.innerText = "Escuchando en ruta...";
+            };
+
+            recon.onresult = function(event) {
+                const comando = event.results[0][0].transcript.toLowerCase();
+                registro.innerText = 'Dicho: "' + comando + '"';
+
+                if (comando.includes("coche")) {
+                    hablar("Atención, coche registrado.");
+                } else if (comando.includes("perro") || comando.includes("animal")) {
+                    hablar("Precaución, alerta de animal en ruta.");
+                } else if (comando.includes("persona") || comando.includes("peatón")) {
+                    hablar("Precaución, peatón detectado.");
+                } else if (comando.includes("dbr") || comando.includes("tramite")) {
+                    hablar("Registro DBR guardado correctamente.");
+                } else {
+                    hablar("Comando recibido: " + comando);
+                }
+                estado.innerText = "Copiloto listo";
+            };
+
+            recon.onerror = function() {
+                estado.innerText = "Error en el micrófono";
+            };
+
+            recon.start();
         }
     </script>
 
