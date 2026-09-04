@@ -3,12 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Guía Sonora de Ruta</title>
-    <!-- Carga del motor de IA -->
+    <title>Guía Sonora de Ruta - Calibrado</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
-        /* Diseño visual mínimo y oscuro para no molestar */
         body {
             font-family: sans-serif;
             background-color: #000000;
@@ -17,53 +15,51 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
             padding: 20px;
             box-sizing: border-box;
         }
-        h1 { font-size: 1.5rem; text-align: center; color: #38bdf8; margin-bottom: 30px; }
+        h1 { font-size: 1.4rem; text-align: center; color: #38bdf8; margin-bottom: 20px; }
         
-        /* Ocultamos la cámara visual, solo necesitamos el procesado */
-        #video, #canvas { display: none; }
+        /* Ocultamos el vídeo visual, dejamos que procese en segundo plano */
+        #video { display: none; }
 
         .btn {
             border: none;
-            padding: 25px;
-            font-size: 1.3rem;
+            padding: 22px;
+            font-size: 1.2rem;
             font-weight: bold;
             border-radius: 15px;
             cursor: pointer;
             color: #ffffff;
             width: 100%;
             max-width: 340px;
-            margin-bottom: 20px;
-            box-shadow: 0 5px 15px rgba(255,255,255,0.1);
+            margin-bottom: 15px;
         }
-        .btn-activar { background-color: #16a34a; } /* Verde para iniciar */
-        .btn-dbr { background-color: #0284c7; } /* Azul para DBR */
+        .btn-activar { background-color: #16a34a; }
+        .btn-dbr { background-color: #0284c7; }
         
-        #estado { margin-top: 20px; font-size: 1.1rem; color: #fbbf24; text-align: center; }
+        #estado { margin-top: 15px; font-size: 1.1rem; color: #fbbf24; text-align: center; }
+        #log { margin-top: 10px; font-size: 0.9rem; color: #94a3b8; text-align: center; }
     </style>
 </head>
 <body>
 
-    <h1>🐾 Guía Sonora de Ruta</h1>
+    <h1>🐾 Guía Sonora (Alta Sensibilidad)</h1>
 
-    <!-- Elementos ocultos para el procesado de imagen -->
     <video id="video" autoplay playsinline muted></video>
-    <canvas id="canvas"></canvas>
 
-    <button class="btn btn-activar" onclick="iniciarGuiaSonora()">📷 INICIAR GUÍA SONORA</button>
+    <button class="btn btn-activar" onclick="iniciarGuia()">📷 INICIAR RADAR MEJORADO</button>
     <button class="btn btn-dbr" onclick="activarMicrofonoDBR()">🎙️ REGISTRO DBR (Voz)</button>
 
-    <div id="estado">Pulsa "INICIAR" para activar el radar</div>
+    <div id="estado">Pulsa para probar la detección mejorada</div>
+    <div id="log">Esperando...</div>
 
     <script>
         const estado = document.getElementById('estado');
+        const log = document.getElementById('log');
         const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
 
         let modeloAI = null;
         let estaHablando = false;
@@ -73,16 +69,12 @@
 
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-        // --- SISTEMA SONORO (Sustituye a los colores) ---
-        
-        // Inicializar sonido
         function initAudio() {
             if (!contextAudio) {
                 contextAudio = new (window.AudioContext || window.webkitAudioContext)();
             }
         }
 
-        // Tocar pitido de alerta (Urgencia)
         function tocarPitido(frecuencia, duracion, repeticiones) {
             initAudio();
             if (oscilador) oscilador.stop();
@@ -93,17 +85,16 @@
             oscilador.connect(gainNode);
             gainNode.connect(contextAudio.destination);
 
-            oscilador.type = 'sine'; // Tono suave
-            oscilador.frequency.value = frecuencia; // Frecuencia del pitido
-            gainNode.gain.value = 0.1; // Volumen bajo
+            oscilador.type = 'sine';
+            oscilador.frequency.value = frecuencia;
+            gainNode.gain.value = 0.15;
 
             oscilador.start();
             
-            // Ciclo de pitidos para urgencia
             let count = 0;
             const interval = setInterval(() => {
-                gainNode.gain.value = 0.1; // Sonar
-                setTimeout(() => { gainNode.gain.value = 0; }, duracion / 2); // Callar
+                gainNode.gain.value = 0.15;
+                setTimeout(() => { gainNode.gain.value = 0; }, duracion / 2);
                 count++;
                 if (count >= repeticiones) {
                     clearInterval(interval);
@@ -114,124 +105,121 @@
 
         function hablar(texto) {
             const ahora = Date.now();
-            // Freno de voz: 3.5 segundos entre avisos
-            if ('speechSynthesis' in window && !estaHablando && (ahora - ultimoAvisoT > 3500)) {
+            // Espaciado entre avisos de voz: 2.5 segundos para responder más rápido
+            if ('speechSynthesis' in window && !estaHablando && (ahora - ultimoAvisoT > 2500)) {
                 estaHablando = true;
                 ultimoAvisoT = ahora;
                 window.speechSynthesis.cancel();
                 
                 const mensaje = new SpeechSynthesisUtterance(texto);
                 mensaje.lang = 'es-ES';
+                mensaje.rate = 1.1; // Un poco más rápido para responder al instante en calle
                 mensaje.onend = () => { estaHablando = false; };
+                mensaje.onerror = () => { estaHablando = false; };
                 
                 window.speechSynthesis.speak(mensaje);
             }
         }
 
-        // --- INICIAR GUÍA ---
-        async function iniciarGuiaSonora() {
-            estado.innerText = "Activando radar sonoro...";
-            initAudio(); // Activar audio en el primer clic
+        async function iniciarGuia() {
+            estado.innerText = "Cargando modelo de alta sensibilidad...";
+            initAudio();
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment' } 
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    } 
                 });
                 video.srcObject = stream;
 
+                // Cargamos el modelo lite pero con mayor frecuencia de escaneo
                 modeloAI = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
                 
-                estado.innerText = "Radar activo (Escuchando ruta)";
-                hablar("Guía sonora activada. Radar de ruta encendido.");
+                estado.innerText = "Radar Calibrado Activo";
+                hablar("Radar calibrado activado. Sensibilidad aumentada.");
 
                 video.onloadedmetadata = () => {
-                    // El canvas se usa internamente para calcular sectores, no para mostrar
-                    canvas.width = 360; 
-                    canvas.height = 270;
-                    procesarRadarSonoro();
+                    setInterval(procesarEscaneo, 300); // Escaneo constante cada 300 milisegundos
                 };
             } catch (err) {
                 estado.innerText = "Error de cámara o permisos";
-                hablar("Error al activar el radar.");
+                hablar("Error al iniciar la cámara.");
             }
         }
 
-        async function procesarRadarSonoro() {
+        async function procesarEscaneo() {
             if (modeloAI && video.readyState === 4) {
-                const predicciones = await modeloAI.detect(video);
+                // Escaneamos pidiendo hasta 5 objetos en simultáneo
+                const predicciones = await modeloAI.detect(video, 5, 0.25); // Sensibilidad bajada a 0.25 (25%)
                 
-                let peligroDetectado = false;
-                let objetoPeligroso = "";
-                let sectorPeligroso = "";
+                let objetoCercano = null;
                 let distanciaMinima = 99;
 
+                const anchoVideo = video.videoWidth || 640;
+                const altoVideo = video.videoHeight || 480;
+                const tercioW = anchoVideo / 3;
+
                 predicciones.forEach(pred => {
-                    if (pred.score > 0.5) {
-                        const [x, y, width, height] = pred.bbox;
-                        
-                        // Procesado interno de sectores (IZQ | CENTRO | DER)
-                        const tercioW = video.videoWidth / 3;
-                        const centroX = x + (width / 2);
-                        let sector = "centro";
-                        if (centroX < tercioW) sector = "izquierda";
-                        else if (centroX > tercioW * 2) sector = "derecha";
+                    const [x, y, width, height] = pred.bbox;
+                    const centroX = x + (width / 2);
 
-                        // Estimación rápida de distancia (2m - 15m)
-                        const metros = Math.max(2, Math.round(15 * (1 - (height / video.videoHeight))));
+                    // Determinación precisa del sector
+                    let sector = "centro";
+                    if (centroX < tercioW) sector = "izquierda";
+                    else if (centroX > tercioW * 2) sector = "derecha";
 
-                        // Lógica de alerta por sonido
-                        if (metros <= 8) {
-                            peligroDetectado = true;
-                            if (metros < distanciaMinima) {
-                                distanciaMinima = metros;
-                                objetoPeligroso = traducir(pred.class);
-                                sectorPeligroso = sector;
-                            }
-                        }
+                    // Cálculo aproximado de distancia por ocupación de altura
+                    const proporcion = height / altoVideo;
+                    const metros = Math.max(1, Math.round(12 * (1 - proporcion)));
+
+                    if (metros < distanciaMinima) {
+                        distanciaMinima = metros;
+                        objetoCercano = {
+                            nombre: traducir(pred.class),
+                            sector: sector,
+                            metros: metros
+                        };
                     }
                 });
 
-                // --- EMITIR ALERTAS SONORAS ---
-                if (peligroDetectado) {
-                    // 1. Alerta por Tono (Urgencia)
-                    if (distanciaMinima <= 4) {
-                        // Peligro Cerca: Pitido rápido y agudo
-                        tocarPitido(800, 150, 3); 
-                    } else {
-                        // Distancia Media: Pitido lento y grave
-                        tocarPitido(400, 400, 1);
+                if (objetoCercano) {
+                    log.innerText = `Detectado: ${objetoCercano.nombre} (${objetoCercano.sector}) a ~${objetoCercano.metros}m`;
+                    
+                    if (objetoCercano.metros <= 4) {
+                        tocarPitido(800, 120, 2); // Pitido de peligro
                     }
 
-                    // 2. Alerta por Voz (Ubicación)
-                    hablar(`${objetoPeligroso}, ${sectorPeligroso}.`);
+                    hablar(`${objetoCercano.nombre}, ${objetoCercano.sector}.`);
+                } else {
+                    log.innerText = "Camino libre (Buscando...)";
                 }
             }
-            // Escaneo constante
-            setTimeout(() => { requestAnimationFrame(procesarRadarSonoro); }, 200);
         }
 
         function traducir(clase) {
             switch(clase) {
                 case 'person': return 'Peatón';
                 case 'car': return 'Coche';
+                case 'bus': return 'Autobús';
+                case 'truck': return 'Camión';
                 case 'dog': return 'Perro';
                 case 'cat': return 'Animal';
+                case 'bicycle': return 'Bicicleta';
+                case 'motorcycle': return 'Moto';
                 default: return 'Obstáculo';
             }
         }
 
-        // --- REGISTRO DBR (VOZ) ---
         function activarMicrofonoDBR() {
             if (!Recognition) return;
-            hablar("Diga el evento para guardar en DBR.");
+            hablar("Diga el trámite para DBR.");
             const recon = new Recognition();
             recon.lang = 'es-ES';
             recon.onresult = (e) => {
                 const cmd = e.results[0][0].transcript.toLowerCase();
-                if (cmd.includes('dbr') || cmd.includes('registro')) {
-                    hablar("Trámite DBR registrado.");
-                } else {
-                    hablar("Registro guardado: " + cmd);
-                }
+                hablar("Registro guardado: " + cmd);
             };
             recon.start();
         }
