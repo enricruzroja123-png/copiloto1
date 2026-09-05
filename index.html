@@ -64,6 +64,7 @@
         let audioCtx = null;
         let esActivo = false;
         let ultimoAvisoTiempo = 0;
+        let ultimoTextoAvisado = "";
 
         function decirTexto(texto) {
             window.speechSynthesis.cancel();
@@ -80,7 +81,7 @@
             let gain = audioCtx.createGain();
             osc.type = 'sine';
             osc.frequency.value = frecuencia;
-            gain.gain.value = 0.1;
+            gain.gain.value = 0.15;
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.start();
@@ -155,41 +156,62 @@
                 let centroX = x + (ancho / 2);
                 let sector = "";
 
-                if (centroX < (anchoVideo * 0.33)) {
+                // División de sectores: 30% Izquierda | 40% Centro | 30% Derecha
+                if (centroX < (anchoVideo * 0.30)) {
                     sector = "a la izquierda";
-                } else if (centroX > (anchoVideo * 0.66)) {
+                } else if (centroX > (anchoVideo * 0.70)) {
                     sector = "a la derecha";
                 } else {
                     sector = "al centro";
                 }
 
-                if (porcentajeOcupado > 50) {
+                // 1. Masa grande frontal
+                if (porcentajeOcupado > 45) {
                     obstaculoInminente = true;
-                    avisoTexto = "Obstáculo grande " + sector;
-                } else if (p.score > 0.40) {
-                    if (p.class === "person") {
-                        avisoTexto = "Peatón " + sector;
-                        if (sector === "al centro") obstaculoInminente = true;
-                    } else if (["chair", "couch", "table", "bed"].includes(p.class)) {
-                        avisoTexto = "Mueble " + sector;
-                        if (sector === "al centro") obstaculoInminente = true;
-                    } else if (["car", "bicycle", "bus", "truck"].includes(p.class)) {
-                        avisoTexto = "Vehículo " + sector;
-                        if (sector === "al centro") obstaculoInminente = true;
+                    avisoTexto = "Obstáculo " + sector;
+                    break;
+                } 
+                
+                // 2. Detección de Personas (Peatones) - Se fuerza pitido si está cerca o al centro
+                if (p.score > 0.35 && p.class === "person") {
+                    avisoTexto = "Persona " + sector;
+                    if (sector === "al centro" || porcentajeOcupado > 15) {
+                        obstaculoInminente = true;
                     }
+                    break;
+                }
+
+                // 3. Muebles y objetos
+                if (p.score > 0.40 && ["chair", "couch", "table", "bed", "tv"].includes(p.class)) {
+                    avisoTexto = "Mueble " + sector;
+                    if (sector === "al centro") obstaculoInminente = true;
+                    break;
                 }
             }
 
-            if (ahora - ultimoAvisoTiempo > 1400) {
-                if (obstaculoInminente) {
-                    emitirPitido(880, 250);
-                    if (avisoTexto) decirTexto(avisoTexto);
-                    estado.innerText = "ALERTA: " + avisoTexto;
+            // Gestión Inteligente de Avisos
+            if (ahora - ultimoAvisoTiempo > 1200) {
+                if (avisoTexto !== "") {
+                    // Si hay peligro o persona cercana, pisa siempre con pitido
+                    if (obstaculoInminente) {
+                        emitirPitido(900, 200);
+                        if (avisoTexto !== ultimoTextoAvisado) {
+                            decirTexto(avisoTexto);
+                            ultimoTextoAvisado = avisoTexto;
+                        }
+                        estado.innerText = "¡ALERTA!: " + avisoTexto;
+                    } else {
+                        if (avisoTexto !== ultimoTextoAvisado) {
+                            decirTexto(avisoTexto);
+                            ultimoTextoAvisado = avisoTexto;
+                        }
+                        estado.innerText = "Detectado: " + avisoTexto;
+                    }
                     ultimoAvisoTiempo = ahora;
-                } else if (avisoTexto) {
-                    decirTexto(avisoTexto);
-                    estado.innerText = "Detectado: " + avisoTexto;
-                    ultimoAvisoTiempo = ahora;
+                } else {
+                    // Si no hay nada en frente, limpiamos la memoria para que vuelva a avisar si entra algo nuevo
+                    ultimoTextoAvisado = "";
+                    estado.innerText = "Vía libre";
                 }
             }
 
