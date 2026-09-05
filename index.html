@@ -147,6 +147,9 @@
             let avisoTexto = "";
 
             for (let p of predicciones) {
+                // Filtro para eliminar reflejos o falsas alarmas con poca certeza (peces, sombras)
+                if (p.score < 0.48) continue;
+
                 let x = p.bbox[0];
                 let ancho = p.bbox[2];
                 let alto = p.bbox[3];
@@ -156,43 +159,42 @@
                 let centroX = x + (ancho / 2);
                 let sector = "";
 
-                // División de sectores: 30% Izquierda | 40% Centro | 30% Derecha
-                if (centroX < (anchoVideo * 0.30)) {
+                // Ajuste de sectores dando más margen a la izquierda (25% IZQ | 50% CENTRO | 25% DER)
+                if (centroX < (anchoVideo * 0.25)) {
                     sector = "a la izquierda";
-                } else if (centroX > (anchoVideo * 0.70)) {
+                } else if (centroX > (anchoVideo * 0.75)) {
                     sector = "a la derecha";
                 } else {
                     sector = "al centro";
                 }
 
-                // 1. Masa grande frontal
-                if (porcentajeOcupado > 45) {
+                // Masa frontal o cercanía de seguridad
+                if (porcentajeOcupado > 40) {
                     obstaculoInminente = true;
                     avisoTexto = "Obstáculo " + sector;
                     break;
                 } 
                 
-                // 2. Detección de Personas (Peatones) - Se fuerza pitido si está cerca o al centro
-                if (p.score > 0.35 && p.class === "person") {
+                // Detección de Personas (Azucena / Peatones)
+                if (p.class === "person") {
                     avisoTexto = "Persona " + sector;
-                    if (sector === "al centro" || porcentajeOcupado > 15) {
+                    if (sector === "al centro" || porcentajeOcupado > 12) {
                         obstaculoInminente = true;
                     }
                     break;
                 }
 
-                // 3. Muebles y objetos
-                if (p.score > 0.40 && ["chair", "couch", "table", "bed", "tv"].includes(p.class)) {
+                // Muebles y estructura
+                if (["chair", "couch", "table", "bed", "tv"].includes(p.class)) {
                     avisoTexto = "Mueble " + sector;
                     if (sector === "al centro") obstaculoInminente = true;
                     break;
                 }
             }
 
-            // Gestión Inteligente de Avisos
-            if (ahora - ultimoAvisoTiempo > 1200) {
+            // Emisión de avisos
+            if (ahora - ultimoAvisoTiempo > 1100) {
                 if (avisoTexto !== "") {
-                    // Si hay peligro o persona cercana, pisa siempre con pitido
                     if (obstaculoInminente) {
                         emitirPitido(900, 200);
                         if (avisoTexto !== ultimoTextoAvisado) {
@@ -209,7 +211,6 @@
                     }
                     ultimoAvisoTiempo = ahora;
                 } else {
-                    // Si no hay nada en frente, limpiamos la memoria para que vuelva a avisar si entra algo nuevo
                     ultimoTextoAvisado = "";
                     estado.innerText = "Vía libre";
                 }
