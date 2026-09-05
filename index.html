@@ -70,7 +70,7 @@
             window.speechSynthesis.cancel();
             let utterance = new SpeechSynthesisUtterance(texto);
             utterance.lang = 'es-ES';
-            utterance.rate = 1.1;
+            utterance.rate = 1.2; // Habla ligeramente más rápido para ganar tiempo
             window.speechSynthesis.speak(utterance);
         }
 
@@ -95,9 +95,9 @@
         }
 
         async function cargarModelo() {
-            estado.innerText = "Cargando modelo de IA...";
+            estado.innerText = "Cargando IA...";
             model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-            estado.innerText = "IA Lista. Pulsa Iniciar Radar.";
+            estado.innerText = "IA Lista. Pulsa Iniciar.";
         }
 
         cargarModelo();
@@ -114,14 +114,14 @@
                 });
             } catch (err) {
                 estado.innerText = "Error accediendo a la cámara.";
-                decirTexto("Error al abrir la cámara.");
+                decirTexto("Error de cámara.");
                 return false;
             }
         }
 
         btnIniciar.addEventListener('click', async () => {
             if (!model) {
-                decirTexto("El modelo aún se está cargando.");
+                decirTexto("Cargando modelo.");
                 return;
             }
 
@@ -129,13 +129,13 @@
             audioCtx.resume();
 
             btnIniciar.style.display = 'none';
-            estado.innerText = "Iniciando cámara...";
+            estado.innerText = "Iniciando...";
 
             let camaraLista = await IniciarCamara();
             if (camaraLista) {
                 esActivo = true;
-                estado.innerText = "Radar Activo. Escaneando...";
-                decirTexto("Radar activo. Detección de masa alta activada.");
+                estado.innerText = "Radar Activo";
+                decirTexto("Radar listo.");
                 procesarRadarContinuo();
             }
         });
@@ -153,7 +153,6 @@
             let obstaculoInminente = false;
             let avisoTexto = "";
 
-            // Evaluar todas las detecciones e ignorar filtros de clase para la franja de la cabeza
             for (let p of predicciones) {
                 let x = p.bbox[0];
                 let y = p.bbox[1];
@@ -166,51 +165,60 @@
                 let centroY = y + (alto / 2);
                 let sectorHorizontal = "";
 
+                // Sectores
                 if (centroX < (anchoVideo * 0.30)) {
-                    sectorHorizontal = "a la izquierda";
+                    sectorHorizontal = "izquierda";
                 } else if (centroX > (anchoVideo * 0.70)) {
-                    sectorHorizontal = "a la derecha";
+                    sectorHorizontal = "derecha";
                 } else {
-                    sectorHorizontal = "al centro";
+                    sectorHorizontal = "centro";
                 }
 
-                // CUALQUIER elemento detectado en la mitad superior de la pantalla sin importar su etiqueta
-                if (centroY < (altoVideo * 0.60) && sectorHorizontal === "al centro") {
+                // 1. Alerta Cara (Alta prioridad)
+                if (centroY < (altoVideo * 0.60) && sectorHorizontal === "centro") {
                     peligroCara = true;
-                    avisoTexto = "Obstáculo a la altura de la cara";
+                    avisoTexto = "Cara centro";
                     break;
                 }
 
-                if (porcentajeOcupado > 30) {
+                // 2. Masa o Voluminoso
+                if (porcentajeOcupado > 25) {
                     obstaculoInminente = true;
-                    avisoTexto = "Obstáculo " + sectorHorizontal;
+                    avisoTexto = "Peligro " + sectorHorizontal;
                     break;
                 }
 
-                if (p.class === "person") {
-                    avisoTexto = "Persona " + sectorHorizontal;
-                    if (sectorHorizontal === "al centro") obstaculoInminente = true;
-                    break;
+                // 3. Objetos específicos o personas
+                if (p.score > 0.35) {
+                    if (p.class === "person") {
+                        avisoTexto = "Persona " + sectorHorizontal;
+                        if (sectorHorizontal === "centro") obstaculoInminente = true;
+                        break;
+                    } else if (["chair", "couch", "table", "bed", "tv", "potted plant"].includes(p.class)) {
+                        avisoTexto = "Mueble " + sectorHorizontal;
+                        if (sectorHorizontal === "centro") obstaculoInminente = true;
+                        break;
+                    }
                 }
             }
 
-            // Gestión de avisos
-            if (ahora - ultimoAvisoTiempo > 1000) {
+            // Emisión rápida de avisos
+            if (ahora - ultimoAvisoTiempo > 900) {
                 if (peligroCara) {
                     emitirPitidoCara();
                     if (avisoTexto !== ultimoTextoAvisado) {
-                        decirTexto("Peligro alto al centro");
+                        decirTexto("Cara centro");
                         ultimoTextoAvisado = avisoTexto;
                     }
-                    estado.innerText = "¡ALERTA CABEZA!: Obstáculo detectado";
+                    estado.innerText = "¡ALERTA!: Cara centro";
                     ultimoAvisoTiempo = ahora;
                 } else if (avisoTexto !== "") {
-                    if (obstaculoInminente) emitirPitido(900, 200);
+                    if (obstaculoInminente) emitirPitido(900, 150);
                     if (avisoTexto !== ultimoTextoAvisado) {
                         decirTexto(avisoTexto);
                         ultimoTextoAvisado = avisoTexto;
                     }
-                    estado.innerText = "Alerta: " + avisoTexto;
+                    estado.innerText = "Detectado: " + avisoTexto;
                     ultimoAvisoTiempo = ahora;
                 } else {
                     ultimoTextoAvisado = "";
