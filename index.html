@@ -53,7 +53,7 @@
     <button id="btnIniciar">INICIAR RADAR</button>
     
     <video id="video" autoplay playsinline muted></video>
-    <div id="estado">Cargando inteligencia artificial...</div>
+    <div id="estado">Cargando IA...</div>
 
     <script>
         let model = null;
@@ -70,7 +70,7 @@
             window.speechSynthesis.cancel();
             let utterance = new SpeechSynthesisUtterance(texto);
             utterance.lang = 'es-ES';
-            utterance.rate = 1.2; // Habla ligeramente más rápido para ganar tiempo
+            utterance.rate = 1.25; // Voz más rápida y reactiva
             window.speechSynthesis.speak(utterance);
         }
 
@@ -81,7 +81,7 @@
             let gain = audioCtx.createGain();
             osc.type = 'sine';
             osc.frequency.value = frecuencia;
-            gain.gain.value = 0.15;
+            gain.gain.value = 0.2;
             osc.connect(gain);
             gain.connect(audioCtx.destination);
             osc.start();
@@ -89,9 +89,9 @@
         }
 
         function emitirPitidoCara() {
-            emitirPitido(1400, 80);
-            setTimeout(() => emitirPitido(1400, 80), 100);
-            setTimeout(() => emitirPitido(1400, 80), 200);
+            emitirPitido(1400, 70);
+            setTimeout(() => emitirPitido(1400, 70), 90);
+            setTimeout(() => emitirPitido(1400, 70), 180);
         }
 
         async function cargarModelo() {
@@ -135,7 +135,7 @@
             if (camaraLista) {
                 esActivo = true;
                 estado.innerText = "Radar Activo";
-                decirTexto("Radar listo.");
+                decirTexto("Radar activo.");
                 procesarRadarContinuo();
             }
         });
@@ -154,6 +154,9 @@
             let avisoTexto = "";
 
             for (let p of predicciones) {
+                // Aceptamos certezas muy bajas (15%) para respuesta al instante
+                if (p.score < 0.15) continue;
+
                 let x = p.bbox[0];
                 let y = p.bbox[1];
                 let ancho = p.bbox[2];
@@ -165,45 +168,42 @@
                 let centroY = y + (alto / 2);
                 let sectorHorizontal = "";
 
-                // Sectores
-                if (centroX < (anchoVideo * 0.30)) {
+                if (centroX < (anchoVideo * 0.33)) {
                     sectorHorizontal = "izquierda";
-                } else if (centroX > (anchoVideo * 0.70)) {
+                } else if (centroX > (anchoVideo * 0.66)) {
                     sectorHorizontal = "derecha";
                 } else {
                     sectorHorizontal = "centro";
                 }
 
-                // 1. Alerta Cara (Alta prioridad)
-                if (centroY < (altoVideo * 0.60) && sectorHorizontal === "centro") {
+                // 1. Detección inmediata en zona alta / cara (Basta con que ocupe más de un 5% al centro-arriba)
+                if (centroY < (altoVideo * 0.65) && sectorHorizontal === "centro" && porcentajeOcupado > 5) {
                     peligroCara = true;
                     avisoTexto = "Cara centro";
                     break;
                 }
 
-                // 2. Masa o Voluminoso
-                if (porcentajeOcupado > 25) {
+                // 2. Detección de Muebles / Sofás (Sensibilidad bajada al 10% de ocupación)
+                if (["chair", "couch", "table", "bed", "tv"].includes(p.class) || porcentajeOcupado > 10) {
                     obstaculoInminente = true;
-                    avisoTexto = "Peligro " + sectorHorizontal;
+                    if (["chair", "couch", "bed"].includes(p.class)) {
+                        avisoTexto = "Mueble " + sectorHorizontal;
+                    } else {
+                        avisoTexto = "Peligro " + sectorHorizontal;
+                    }
                     break;
                 }
 
-                // 3. Objetos específicos o personas
-                if (p.score > 0.35) {
-                    if (p.class === "person") {
-                        avisoTexto = "Persona " + sectorHorizontal;
-                        if (sectorHorizontal === "centro") obstaculoInminente = true;
-                        break;
-                    } else if (["chair", "couch", "table", "bed", "tv", "potted plant"].includes(p.class)) {
-                        avisoTexto = "Mueble " + sectorHorizontal;
-                        if (sectorHorizontal === "centro") obstaculoInminente = true;
-                        break;
-                    }
+                // 3. Peatones / Personas
+                if (p.class === "person") {
+                    avisoTexto = "Persona " + sectorHorizontal;
+                    if (sectorHorizontal === "centro") obstaculoInminente = true;
+                    break;
                 }
             }
 
-            // Emisión rápida de avisos
-            if (ahora - ultimoAvisoTiempo > 900) {
+            // Emisión ultra-rápida (Reducido a 700 milisegundos para no perder el primer pase)
+            if (ahora - ultimoAvisoTiempo > 700) {
                 if (peligroCara) {
                     emitirPitidoCara();
                     if (avisoTexto !== ultimoTextoAvisado) {
