@@ -3,229 +3,211 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Guía Sonora de Ruta - Calibrada</title>
+    <title>Guía Sonora - Radar de Navegación</title>
+    <!-- Carga de TensorFlow.js y modelo COCO-SSD -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
         body {
-            font-family: sans-serif;
-            background-color: #000000;
+            font-family: Arial, sans-serif;
+            background-color: #121212;
             color: #ffffff;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
+            text-align: center;
             margin: 0;
             padding: 20px;
-            box-sizing: border-box;
         }
-        h1 { font-size: 1.4rem; text-align: center; color: #38bdf8; margin-bottom: 20px; }
-        #video { display: none; }
-        .btn {
-            border: none;
-            padding: 22px;
-            font-size: 1.2rem;
+        #btnIniciar {
+            background-color: #00e676;
+            color: #000;
+            font-size: 24px;
             font-weight: bold;
-            border-radius: 15px;
+            padding: 20px 40px;
+            border: none;
+            border-radius: 12px;
             cursor: pointer;
-            color: #ffffff;
-            width: 100%;
-            max-width: 340px;
-            margin-bottom: 15px;
+            width: 90%;
+            max-width: 400px;
+            margin-bottom: 20px;
         }
-        .btn-activar { background-color: #16a34a; }
-        .btn-dbr { background-color: #0284c7; }
-        #estado { margin-top: 15px; font-size: 1.1rem; color: #fbbf24; text-align: center; }
-        #log { margin-top: 10px; font-size: 0.9rem; color: #94a3b8; text-align: center; }
+        #btnIniciar:active {
+            background-color: #00b0ff;
+        }
+        #video {
+            width: 100%;
+            max-width: 400px;
+            border-radius: 8px;
+            display: block;
+            margin: 0 auto 15px auto;
+        }
+        #estado {
+            font-size: 18px;
+            color: #ffeb3b;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
 
-    <h1>🐾 Guía Sonora (Calibración Fina)</h1>
-
+    <h1>Guía Sonora</h1>
+    <button id="btnIniciar">INICIAR RADAR</button>
     <video id="video" autoplay playsinline muted></video>
-
-    <button class="btn btn-activar" onclick="iniciarGuia()">📷 INICIAR RADAR</button>
-    <button class="btn btn-dbr" onclick="activarMicrofonoDBR()">🎙️ REGISTRO DBR (Voz)</button>
-
-    <div id="estado">Pulsa para iniciar el radar ajustado</div>
-    <div id="log">Esperando...</div>
+    <div id="estado">Radar desactivado. Pulsa el botón.</div>
 
     <script>
-        const estado = document.getElementById('estado');
-        const log = document.getElementById('log');
-        const video = document.getElementById('video');
+        let model = null;
+        let video = document.getElementById('video');
+        let estado = document.getElementById('estado');
+        let btnIniciar = document.getElementById('btnIniciar');
+        
+        let audioCtx = null;
+        let esActivo = false;
+        let ultimoAvisoTiempo = 0;
 
-        let modeloAI = null;
-        let estaHablando = false;
-        let ultimoAvisoT = 0;
-        let ultimoMensaje = "";
-        let contextAudio = null;
-        let oscilador = null;
-
-        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-        function initAudio() {
-            if (!contextAudio) {
-                contextAudio = new (window.AudioContext || window.webkitAudioContext)();
-            }
+        // Inicializar síntesis de voz y audio
+        function decirTexto(texto) {
+            window.speechSynthesis.cancel();
+            let utterance = new SpeechSynthesisUtterance(texto);
+            utterance.lang = 'es-ES';
+            utterance.rate = 1.1;
+            window.speechSynthesis.speak(utterance);
         }
 
-        function tocarPitido(frecuencia, duracion, repeticiones) {
-            initAudio();
-            if (oscilador) oscilador.stop();
-
-            oscilador = contextAudio.createOscillator();
-            const gainNode = contextAudio.createGain();
-
-            oscilador.connect(gainNode);
-            gainNode.connect(contextAudio.destination);
-
-            oscilador.type = 'sine';
-            oscilador.frequency.value = frecuencia;
-            gainNode.gain.value = 0.15;
-
-            oscilador.start();
-            
-            let count = 0;
-            const interval = setInterval(() => {
-                gainNode.gain.value = 0.15;
-                setTimeout(() => { gainNode.gain.value = 0; }, duracion / 2);
-                count++;
-                if (count >= repeticiones) {
-                    clearInterval(interval);
-                    setTimeout(() => oscilador.stop(), duracion);
-                }
-            }, duracion);
+        function emitirPitido(frecuencia, duracion) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = frecuencia;
+            gain.gain.value = 0.1;
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + (duracion / 1000));
         }
 
-        function hablar(texto) {
-            const ahora = Date.now();
-            // Freno inteligente: Evita repetir la misma frase exacta en bucle
-            if ('speechSynthesis' in window && !estaHablando && (ahora - ultimoAvisoT > 3000 || texto !== ultimoMensaje)) {
-                estaHablando = true;
-                ultimoAvisoT = ahora;
-                ultimoMensaje = texto;
-                window.speechSynthesis.cancel();
-                
-                const mensaje = new SpeechSynthesisUtterance(texto);
-                mensaje.lang = 'es-ES';
-                mensaje.rate = 1.0;
-                mensaje.onend = () => { estaHablando = false; };
-                mensaje.onerror = () => { estaHablando = false; };
-                
-                window.speechSynthesis.speak(mensaje);
-            }
+        // Cargar Modelo COCO-SSD
+        async function cargarModelo() {
+            estado.innerText = "Cargando modelo de IA...";
+            model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+            estado.innerText = "IA Lista. Pulsa Iniciar Radar.";
         }
 
-        async function iniciarGuia() {
-            estado.innerText = "Cargando motor de visión...";
-            initAudio();
+        cargarModelo();
+
+        // Arrancar Cámara
+        async function IniciarCamara() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        facingMode: 'environment',
-                        width: { ideal: 640 },
-                        height: { ideal: 480 }
-                    } 
+                let stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
                 });
                 video.srcObject = stream;
-
-                modeloAI = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-                
-                estado.innerText = "Radar Activo (Calibrado)";
-                hablar("Radar activo. Calibración de sectores completada.");
-
-                video.onloadedmetadata = () => {
-                    setInterval(procesarEscaneo, 250);
-                };
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => { resolve(true); };
+                });
             } catch (err) {
-                estado.innerText = "Error de acceso a la cámara";
-                hablar("Error al abrir la cámara.");
+                estado.innerText = "Error accediendo a la cámara.";
+                decirTexto("Error al abrir la cámara.");
+                return false;
             }
         }
 
-        async function procesarEscaneo() {
-            if (modeloAI && video.readyState === 4) {
-                // Filtro de certeza subido al 45% (0.45) para evitar confusiones
-                const predicciones = await modeloAI.detect(video, 4, 0.45);
-                
-                let objetoCercano = null;
-                let distanciaMinima = 99;
+        // Evento de inicio (Toque único)
+        btnIniciar.addEventListener('click', async () => {
+            if (!model) {
+                decirTexto("El modelo aún se está cargando. Espera unos segundos.");
+                return;
+            }
 
-                const anchoVideo = video.videoWidth || 640;
-                const altoVideo = video.videoHeight || 480;
+            btnIniciar.disabled = true;
+            btnIniciar.style.display = 'none';
+            estado.innerText = "Iniciando cámara...";
 
-                // Límites estrictos para los 3 sectores (33% cada uno)
-                const limiteIzq = anchoVideo * 0.33;
-                const limiteDer = anchoVideo * 0.66;
+            let camaraLista = await IniciarCamara();
+            if (camaraLista) {
+                esActivo = true;
+                estado.innerText = "Radar Activo Continuo.";
+                decirTexto("Radar activo. Navegación continua iniciada.");
+                procesarRadarContinuo();
+            }
+        });
 
-                predicciones.forEach(pred => {
-                    const [x, y, width, height] = pred.bbox;
-                    const centroX = x + (width / 2);
+        // Bucle Continuo de Detección
+        async function procesarRadarContinuo() {
+            if (!esActivo) return;
 
-                    // Clasificación precisa por sector
-                    let sector = "centro";
-                    if (centroX < limiteIzq) sector = "izquierda";
-                    else if (centroX > limiteDer) sector = "derecha";
+            let ahora = Date.now();
+            let anchoVideo = video.videoWidth || 640;
+            let altoVideo = video.videoHeight || 480;
+            let areaPantalla = anchoVideo * altoVideo;
 
-                    // Distancia aproximada
-                    const proporcion = height / altoVideo;
-                    const metros = Math.max(1, Math.round(10 * (1 - proporcion)));
+            let predicciones = await model.detect(video);
 
-                    // Priorizamos el objeto más cercano que sea relevante en ruta
-                    if (metros < distanciaMinima) {
-                        distanciaMinima = metros;
-                        objetoCercano = {
-                            nombre: traducir(pred.class),
-                            sector: sector,
-                            metros: metros
-                        };
-                    }
-                });
+            let obstaculoInminente = false;
+            let avisoTexto = "";
 
-                if (objetoCercano) {
-                    log.innerText = `${objetoCercano.nombre} (${objetoCercano.sector}) ~${objetoCercano.metros}m`;
-                    
-                    if (objetoCercano.metros <= 4) {
-                        tocarPitido(800, 120, 2); // Pitido de aviso cercano
-                    }
+            for (let p of predicciones) {
+                let x = p.bbox[0];
+                let y = p.bbox[1];
+                let ancho = p.bbox[2];
+                let alto = p.bbox[3];
+                let areaObjeto = ancho * alto;
+                let porcentajeOcupado = (areaObjeto / areaPantalla) * 100;
 
-                    hablar(`${objetoCercano.nombre}, ${objetoCercano.sector}.`);
+                let centroX = x + (ancho / 2);
+                let sector = "";
+
+                // Calculo estricto de sectores en tercios (33% | 34% | 33%)
+                if (centroX < (anchoVideo * 0.33)) {
+                    sector = "a la izquierda";
+                } else if (centroX > (anchoVideo * 0.66)) {
+                    sector = "a la derecha";
                 } else {
-                    log.innerText = "Camino despejado";
+                    sector = "al centro";
+                }
+
+                // 1. Filtro de Masa Frontal (Sofá/Pared/Bulto cercano no identificado)
+                if (porcentajeOcupado > 55) {
+                    obstaculoInminente = true;
+                    avisoTexto = "Obstáculo grande " + sector;
+                    break;
+                }
+
+                // 2. Detección de Peatones o Vehículos con filtro de confianza
+                if (p.score > 0.45) {
+                    if (p.class === "person") {
+                        // Evitar que te detecte las manos/brazos muy cerca como peatón completo
+                        if (porcentajeOcupado < 80) {
+                            avisoTexto = "Peatón " + sector;
+                            if (sector === "al centro") obstaculoInminente = true;
+                        }
+                    } else if (["chair", "couch", "table", "bed"].includes(p.class)) {
+                        if (porcentajeOcupado > 25) {
+                            avisoTexto = "Mueble " + sector;
+                            if (sector === "al centro") obstaculoInminente = true;
+                        }
+                    } else if (["car", "bicycle", "bus", "truck"].includes(p.class)) {
+                        avisoTexto = "Vehículo " + sector;
+                        if (sector === "al centro") obstaculoInminente = true;
+                    }
                 }
             }
-        }
 
-        function traducir(clase) {
-            switch(clase) {
-                case 'person': return 'Peatón';
-                case 'car': return 'Coche';
-                case 'bus': return 'Autobús';
-                case 'truck': return 'Camión';
-                case 'dog': return 'Perro';
-                case 'cat': return 'Animal';
-                case 'chair': return 'Silla';
-                case 'couch': return 'Sofá';
-                case 'tv': return 'Pantalla';
-                default: return 'Obstáculo';
+            // Gestionar Avisos y Tiempos
+            if (ahora - ultimoAvisoTiempo > 1200) { // Avisos cada 1.2 segundos
+                if (obstaculoInminente) {
+                    emitirPitido(880, 200); // Pitido agudo de alerta
+                    if (avisoTexto) decirTexto(avisoTexto);
+                    ultimoAvisoTiempo = ahora;
+                } else if (avisoTexto) {
+                    decirTexto(avisoTexto);
+                    ultimoAvisoTiempo = ahora;
+                }
             }
-        }
 
-        function activarMicrofonoDBR() {
-            if (!Recognition) return;
-            hablar("Diga la nota para DBR.");
-            const recon = new Recognition();
-            recon.lang = 'es-ES';
-            recon.onresult = (e) => {
-                const cmd = e.results[0][0].transcript.toLowerCase();
-                hablar("Registro guardado: " + cmd);
-            };
-            recon.start();
+            // Bucle sin fin para mantener la cámara procesando continuamente
+            requestAnimationFrame(procesarRadarContinuo);
         }
     </script>
-
 </body>
 </html>
