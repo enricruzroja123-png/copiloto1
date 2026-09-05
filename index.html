@@ -88,6 +88,15 @@
             osc.stop(audioCtx.currentTime + (duracion / 1000));
         }
 
+        function emitirPitidoAltura() {
+            emitirPitido(1200, 100);
+            setTimeout(() => emitirPitido(1200, 100), 150);
+        }
+
+        function emitirPitidoSuelo() {
+            emitirPitido(400, 300);
+        }
+
         async function cargarModelo() {
             estado.innerText = "Cargando modelo de IA...";
             model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
@@ -128,8 +137,8 @@
             let camaraLista = await IniciarCamara();
             if (camaraLista) {
                 esActivo = true;
-                estado.innerText = "Radar Activo. Escaneando...";
-                decirTexto("Radar activo.");
+                estado.innerText = "Radar Activo. Escaneando 360°...";
+                decirTexto("Radar activo. Cobertura de cuatro costados lista.");
                 procesarRadarContinuo();
             }
         });
@@ -144,71 +153,91 @@
 
             let predicciones = await model.detect(video);
             let obstaculoInminente = false;
+            let tipoAlerta = "normal"; // normal | alto | suelo
             let avisoTexto = "";
 
             for (let p of predicciones) {
-                // Filtro para eliminar reflejos o falsas alarmas con poca certeza (peces, sombras)
-                if (p.score < 0.48) continue;
+                if (p.score < 0.40) continue;
 
                 let x = p.bbox[0];
+                let y = p.bbox[1];
                 let ancho = p.bbox[2];
                 let alto = p.bbox[3];
                 let areaObjeto = ancho * alto;
                 let porcentajeOcupado = (areaObjeto / areaPantalla) * 100;
 
                 let centroX = x + (ancho / 2);
-                let sector = "";
+                let centroY = y + (alto / 2);
+                let sectorHorizontal = "";
+                let sectorVertical = "";
 
-                // Ajuste de sectores dando más margen a la izquierda (25% IZQ | 50% CENTRO | 25% DER)
-                if (centroX < (anchoVideo * 0.25)) {
-                    sector = "a la izquierda";
-                } else if (centroX > (anchoVideo * 0.75)) {
-                    sector = "a la derecha";
+                // 1. Mapeo Horizontal (Periférica Izq / Centro / Periférica Der)
+                if (centroX < (anchoVideo * 0.30)) {
+                    sectorHorizontal = "a la izquierda";
+                } else if (centroX > (anchoVideo * 0.70)) {
+                    sectorHorizontal = "a la derecha";
                 } else {
-                    sector = "al centro";
+                    sectorHorizontal = "al centro";
                 }
 
-                // Masa frontal o cercanía de seguridad
-                if (porcentajeOcupado > 40) {
+                // 2. Mapeo Vertical (Arriba / Centro / Suelo)
+                if (centroY < (altoVideo * 0.35)) {
+                    sectorVertical = "alto";
+                } else if (centroY > (altoVideo * 0.70)) {
+                    sectorVertical = "abajo";
+                } else {
+                    sectorVertical = "frontal";
+                }
+
+                // Evaluar prioridad de riesgo por cuadrantes
+                if (sectorVertical === "alto" && porcentajeOcupado > 12) {
+                    tipoAlerta = "alto";
                     obstaculoInminente = true;
-                    avisoTexto = "Obstáculo " + sector;
+                    avisoTexto = "Obstáculo alto " + sectorHorizontal;
                     break;
-                } 
-                
-                // Detección de Personas (Azucena / Peatones)
+                } else if (sectorVertical === "abajo" && porcentajeOcupado > 20) {
+                    tipoAlerta = "suelo";
+                    avisoTexto = "Objeto abajo " + sectorHorizontal;
+                    if (sectorHorizontal === "al centro") obstaculoInminente = true;
+                    break;
+                } else if (porcentajeOcupado > 38) {
+                    tipoAlerta = "normal";
+                    obstaculoInminente = true;
+                    avisoTexto = "Obstáculo " + sectorHorizontal;
+                    break;
+                }
+
                 if (p.class === "person") {
-                    avisoTexto = "Persona " + sector;
-                    if (sector === "al centro" || porcentajeOcupado > 12) {
+                    avisoTexto = "Persona " + sectorHorizontal;
+                    if (sectorHorizontal === "al centro" || porcentajeOcupado > 12) {
                         obstaculoInminente = true;
                     }
                     break;
                 }
 
-                // Muebles y estructura
-                if (["chair", "couch", "table", "bed", "tv"].includes(p.class)) {
-                    avisoTexto = "Mueble " + sector;
-                    if (sector === "al centro") obstaculoInminente = true;
+                if (["chair", "couch", "table", "bed", "tv", "potted plant"].includes(p.class)) {
+                    avisoTexto = "Objeto " + sectorHorizontal;
+                    if (sectorHorizontal === "al centro") obstaculoInminente = true;
                     break;
                 }
             }
 
-            // Emisión de avisos
-            if (ahora - ultimoAvisoTiempo > 1100) {
+            // Emisión sonora diferenciada por cuadrantes
+            if (ahora - ultimoAvisoTiempo > 1400) {
                 if (avisoTexto !== "") {
-                    if (obstaculoInminente) {
+                    if (tipoAlerta === "alto") {
+                        emitirPitidoAltura();
+                    } else if (tipoAlerta === "suelo") {
+                        emitirPitidoSuelo();
+                    } else if (obstaculoInminente) {
                         emitirPitido(900, 200);
-                        if (avisoTexto !== ultimoTextoAvisado) {
-                            decirTexto(avisoTexto);
-                            ultimoTextoAvisado = avisoTexto;
-                        }
-                        estado.innerText = "¡ALERTA!: " + avisoTexto;
-                    } else {
-                        if (avisoTexto !== ultimoTextoAvisado) {
-                            decirTexto(avisoTexto);
-                            ultimoTextoAvisado = avisoTexto;
-                        }
-                        estado.innerText = "Detectado: " + avisoTexto;
                     }
+
+                    if (avisoTexto !== ultimoTextoAvisado) {
+                        decirTexto(avisoTexto);
+                        ultimoTextoAvisado = avisoTexto;
+                    }
+                    estado.innerText = "Alerta: " + avisoTexto;
                     ultimoAvisoTiempo = ahora;
                 } else {
                     ultimoTextoAvisado = "";
