@@ -1,10 +1,10 @@
+HTML
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Guía Sonora - Radar de Navegación</title>
-    <!-- Carga de TensorFlow.js y modelo COCO-SSD -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
@@ -14,35 +14,41 @@
             color: #ffffff;
             text-align: center;
             margin: 0;
-            padding: 20px;
+            padding: 10px;
         }
         #btnIniciar {
             background-color: #00e676;
             color: #000;
-            font-size: 24px;
+            font-size: 22px;
             font-weight: bold;
-            padding: 20px 40px;
+            padding: 18px 30px;
             border: none;
             border-radius: 12px;
             cursor: pointer;
             width: 90%;
             max-width: 400px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
-        #btnIniciar:active {
-            background-color: #00b0ff;
-        }
-        #video {
+        .contenedor-camara {
+            position: relative;
             width: 100%;
             max-width: 400px;
+            margin: 0 auto;
+        }
+        #video, #canvas {
+            width: 100%;
             border-radius: 8px;
-            display: block;
-            margin: 0 auto 15px auto;
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
         }
         #estado {
             font-size: 18px;
             color: #ffeb3b;
             margin-top: 10px;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -50,12 +56,19 @@
 
     <h1>Guía Sonora</h1>
     <button id="btnIniciar">INICIAR RADAR</button>
-    <video id="video" autoplay playsinline muted></video>
-    <div id="estado">Radar desactivado. Pulsa el botón.</div>
+    
+    <div class="contenedor-camara">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas"></canvas>
+    </div>
+    
+    <div id="estado">Cargando inteligencia artificial...</div>
 
     <script>
         let model = null;
         let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
         let estado = document.getElementById('estado');
         let btnIniciar = document.getElementById('btnIniciar');
         
@@ -63,7 +76,6 @@
         let esActivo = false;
         let ultimoAvisoTiempo = 0;
 
-        // Inicializar síntesis de voz y audio
         function decirTexto(texto) {
             window.speechSynthesis.cancel();
             let utterance = new SpeechSynthesisUtterance(texto);
@@ -74,6 +86,7 @@
 
         function emitirPitido(frecuencia, duracion) {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
             let osc = audioCtx.createOscillator();
             let gain = audioCtx.createGain();
             osc.type = 'sine';
@@ -85,7 +98,6 @@
             osc.stop(audioCtx.currentTime + (duracion / 1000));
         }
 
-        // Cargar Modelo COCO-SSD
         async function cargarModelo() {
             estado.innerText = "Cargando modelo de IA...";
             model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
@@ -94,7 +106,6 @@
 
         cargarModelo();
 
-        // Arrancar Cámara
         async function IniciarCamara() {
             try {
                 let stream = await navigator.mediaDevices.getUserMedia({
@@ -103,7 +114,11 @@
                 });
                 video.srcObject = stream;
                 return new Promise((resolve) => {
-                    video.onloadedmetadata = () => { resolve(true); };
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        resolve(true);
+                    };
                 });
             } catch (err) {
                 estado.innerText = "Error accediendo a la cámara.";
@@ -112,27 +127,28 @@
             }
         }
 
-        // Evento de inicio (Toque único)
         btnIniciar.addEventListener('click', async () => {
             if (!model) {
-                decirTexto("El modelo aún se está cargando. Espera unos segundos.");
+                decirTexto("El modelo aún se está cargando.");
                 return;
             }
 
-            btnIniciar.disabled = true;
+            // Desbloquear audio en el navegador
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            audioCtx.resume();
+
             btnIniciar.style.display = 'none';
             estado.innerText = "Iniciando cámara...";
 
             let camaraLista = await IniciarCamara();
             if (camaraLista) {
                 esActivo = true;
-                estado.innerText = "Radar Activo Continuo.";
-                decirTexto("Radar activo. Navegación continua iniciada.");
+                estado.innerText = "Radar Activo. Escaneando...";
+                decirTexto("Radar activo.");
                 procesarRadarContinuo();
             }
         });
 
-        // Bucle Continuo de Detección
         async function procesarRadarContinuo() {
             if (!esActivo) return;
 
@@ -141,8 +157,10 @@
             let altoVideo = video.videoHeight || 480;
             let areaPantalla = anchoVideo * altoVideo;
 
-            let predicciones = await model.detect(video);
+            // Limpiar lienzo de dibujo
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            let predicciones = await model.detect(video);
             let obstaculoInminente = false;
             let avisoTexto = "";
 
@@ -157,7 +175,6 @@
                 let centroX = x + (ancho / 2);
                 let sector = "";
 
-                // Calculo estricto de sectores en tercios (33% | 34% | 33%)
                 if (centroX < (anchoVideo * 0.33)) {
                     sector = "a la izquierda";
                 } else if (centroX > (anchoVideo * 0.66)) {
@@ -166,26 +183,26 @@
                     sector = "al centro";
                 }
 
-                // 1. Filtro de Masa Frontal (Sofá/Pared/Bulto cercano no identificado)
-                if (porcentajeOcupado > 55) {
+                // Dibujar marco visual en la pantalla
+                ctx.strokeStyle = "#00e676";
+                ctx.lineWidth = 4;
+                ctx.strokeRect(x, y, ancho, alto);
+
+                ctx.fillStyle = "#00e676";
+                ctx.font = "18px Arial";
+                ctx.fillText(`${p.class} (${Math.round(p.score * 100)}%)`, x, y > 20 ? y - 5 : 20);
+
+                // Detección de masa o categoría
+                if (porcentajeOcupado > 50) {
                     obstaculoInminente = true;
                     avisoTexto = "Obstáculo grande " + sector;
-                    break;
-                }
-
-                // 2. Detección de Peatones o Vehículos con filtro de confianza
-                if (p.score > 0.45) {
+                } else if (p.score > 0.40) {
                     if (p.class === "person") {
-                        // Evitar que te detecte las manos/brazos muy cerca como peatón completo
-                        if (porcentajeOcupado < 80) {
-                            avisoTexto = "Peatón " + sector;
-                            if (sector === "al centro") obstaculoInminente = true;
-                        }
+                        avisoTexto = "Peatón " + sector;
+                        if (sector === "al centro") obstaculoInminente = true;
                     } else if (["chair", "couch", "table", "bed"].includes(p.class)) {
-                        if (porcentajeOcupado > 25) {
-                            avisoTexto = "Mueble " + sector;
-                            if (sector === "al centro") obstaculoInminente = true;
-                        }
+                        avisoTexto = "Mueble " + sector;
+                        if (sector === "al centro") obstaculoInminente = true;
                     } else if (["car", "bicycle", "bus", "truck"].includes(p.class)) {
                         avisoTexto = "Vehículo " + sector;
                         if (sector === "al centro") obstaculoInminente = true;
@@ -193,19 +210,20 @@
                 }
             }
 
-            // Gestionar Avisos y Tiempos
-            if (ahora - ultimoAvisoTiempo > 1200) { // Avisos cada 1.2 segundos
+            // Avisos por voz y sonido
+            if (ahora - ultimoAvisoTiempo > 1400) {
                 if (obstaculoInminente) {
-                    emitirPitido(880, 200); // Pitido agudo de alerta
+                    emitirPitido(880, 250);
                     if (avisoTexto) decirTexto(avisoTexto);
+                    estado.innerText = "¡ALERTA!: " + avisoTexto;
                     ultimoAvisoTiempo = ahora;
                 } else if (avisoTexto) {
                     decirTexto(avisoTexto);
+                    estado.innerText = "Detectado: " + avisoTexto;
                     ultimoAvisoTiempo = ahora;
                 }
             }
 
-            // Bucle sin fin para mantener la cámara procesando continuamente
             requestAnimationFrame(procesarRadarContinuo);
         }
     </script>
