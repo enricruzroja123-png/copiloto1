@@ -88,13 +88,10 @@
             osc.stop(audioCtx.currentTime + (duracion / 1000));
         }
 
-        function emitirPitidoAltura() {
-            emitirPitido(1200, 100);
-            setTimeout(() => emitirPitido(1200, 100), 150);
-        }
-
-        function emitirPitidoSuelo() {
-            emitirPitido(400, 300);
+        function emitirPitidoCara() {
+            emitirPitido(1400, 80);
+            setTimeout(() => emitirPitido(1400, 80), 100);
+            setTimeout(() => emitirPitido(1400, 80), 200);
         }
 
         async function cargarModelo() {
@@ -137,8 +134,8 @@
             let camaraLista = await IniciarCamara();
             if (camaraLista) {
                 esActivo = true;
-                estado.innerText = "Radar Activo. Escaneando 360°...";
-                decirTexto("Radar activo. Cobertura de cuatro costados lista.");
+                estado.innerText = "Radar Activo. Escaneando...";
+                decirTexto("Radar activo. Detección de masa alta activada.");
                 procesarRadarContinuo();
             }
         });
@@ -152,13 +149,12 @@
             let areaPantalla = anchoVideo * altoVideo;
 
             let predicciones = await model.detect(video);
+            let peligroCara = false;
             let obstaculoInminente = false;
-            let tipoAlerta = "normal"; // normal | alto | suelo
             let avisoTexto = "";
 
+            // Evaluar todas las detecciones e ignorar filtros de clase para la franja de la cabeza
             for (let p of predicciones) {
-                if (p.score < 0.40) continue;
-
                 let x = p.bbox[0];
                 let y = p.bbox[1];
                 let ancho = p.bbox[2];
@@ -169,9 +165,7 @@
                 let centroX = x + (ancho / 2);
                 let centroY = y + (alto / 2);
                 let sectorHorizontal = "";
-                let sectorVertical = "";
 
-                // 1. Mapeo Horizontal (Periférica Izq / Centro / Periférica Der)
                 if (centroX < (anchoVideo * 0.30)) {
                     sectorHorizontal = "a la izquierda";
                 } else if (centroX > (anchoVideo * 0.70)) {
@@ -180,28 +174,14 @@
                     sectorHorizontal = "al centro";
                 }
 
-                // 2. Mapeo Vertical (Arriba / Centro / Suelo)
-                if (centroY < (altoVideo * 0.35)) {
-                    sectorVertical = "alto";
-                } else if (centroY > (altoVideo * 0.70)) {
-                    sectorVertical = "abajo";
-                } else {
-                    sectorVertical = "frontal";
+                // CUALQUIER elemento detectado en la mitad superior de la pantalla sin importar su etiqueta
+                if (centroY < (altoVideo * 0.60) && sectorHorizontal === "al centro") {
+                    peligroCara = true;
+                    avisoTexto = "Obstáculo a la altura de la cara";
+                    break;
                 }
 
-                // Evaluar prioridad de riesgo por cuadrantes
-                if (sectorVertical === "alto" && porcentajeOcupado > 12) {
-                    tipoAlerta = "alto";
-                    obstaculoInminente = true;
-                    avisoTexto = "Obstáculo alto " + sectorHorizontal;
-                    break;
-                } else if (sectorVertical === "abajo" && porcentajeOcupado > 20) {
-                    tipoAlerta = "suelo";
-                    avisoTexto = "Objeto abajo " + sectorHorizontal;
-                    if (sectorHorizontal === "al centro") obstaculoInminente = true;
-                    break;
-                } else if (porcentajeOcupado > 38) {
-                    tipoAlerta = "normal";
+                if (porcentajeOcupado > 30) {
                     obstaculoInminente = true;
                     avisoTexto = "Obstáculo " + sectorHorizontal;
                     break;
@@ -209,30 +189,23 @@
 
                 if (p.class === "person") {
                     avisoTexto = "Persona " + sectorHorizontal;
-                    if (sectorHorizontal === "al centro" || porcentajeOcupado > 12) {
-                        obstaculoInminente = true;
-                    }
-                    break;
-                }
-
-                if (["chair", "couch", "table", "bed", "tv", "potted plant"].includes(p.class)) {
-                    avisoTexto = "Objeto " + sectorHorizontal;
                     if (sectorHorizontal === "al centro") obstaculoInminente = true;
                     break;
                 }
             }
 
-            // Emisión sonora diferenciada por cuadrantes
-            if (ahora - ultimoAvisoTiempo > 1400) {
-                if (avisoTexto !== "") {
-                    if (tipoAlerta === "alto") {
-                        emitirPitidoAltura();
-                    } else if (tipoAlerta === "suelo") {
-                        emitirPitidoSuelo();
-                    } else if (obstaculoInminente) {
-                        emitirPitido(900, 200);
+            // Gestión de avisos
+            if (ahora - ultimoAvisoTiempo > 1000) {
+                if (peligroCara) {
+                    emitirPitidoCara();
+                    if (avisoTexto !== ultimoTextoAvisado) {
+                        decirTexto("Peligro alto al centro");
+                        ultimoTextoAvisado = avisoTexto;
                     }
-
+                    estado.innerText = "¡ALERTA CABEZA!: Obstáculo detectado";
+                    ultimoAvisoTiempo = ahora;
+                } else if (avisoTexto !== "") {
+                    if (obstaculoInminente) emitirPitido(900, 200);
                     if (avisoTexto !== ultimoTextoAvisado) {
                         decirTexto(avisoTexto);
                         ultimoTextoAvisado = avisoTexto;
