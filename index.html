@@ -65,13 +65,15 @@
         let esActivo = false;
         let ultimoAvisoTiempo = 0;
         let ultimoTextoAvisado = "";
-        let indicePrioridad = 0;
+        
+        // Historial de masa para detectar aproximación rápida
+        let masaAnterior = { izq: 0, centro: 0, der: 0 };
 
         function decirTexto(texto) {
             window.speechSynthesis.cancel();
             let utterance = new SpeechSynthesisUtterance(texto);
             utterance.lang = 'es-ES';
-            utterance.rate = 1.25;
+            utterance.rate = 1.3; // Fluidez de voz humana acelerada
             window.speechSynthesis.speak(utterance);
         }
 
@@ -136,7 +138,7 @@
             if (camaraLista) {
                 esActivo = true;
                 estado.innerText = "Radar Activo";
-                decirTexto("Radar activo.");
+                decirTexto("Radar activo. Modo flujo visual.");
                 procesarRadarContinuo();
             }
         });
@@ -150,70 +152,78 @@
             let areaPantalla = anchoVideo * altoVideo;
 
             let predicciones = await model.detect(video);
-            let hallazgos = [];
+            
+            let masaActual = { izq: 0, centro: 0, der: 0, arriba: 0 };
+            let avisoTexto = "";
+            let tipoAlerta = "normal";
 
             for (let p of predicciones) {
+                // Captura amplia de cualquier objeto detectado
+                if (p.score < 0.15) continue;
+
                 let x = p.bbox[0];
                 let y = p.bbox[1];
                 let ancho = p.bbox[2];
                 let alto = p.bbox[3];
                 let areaObjeto = ancho * alto;
-                let porcentajeOcupado = (areaObjeto / areaPantalla) * 100;
+                let porcentaje = (areaObjeto / areaPantalla) * 100;
 
                 let centroX = x + (ancho / 2);
                 let centroY = y + (alto / 2);
-                let sectorHorizontal = "";
 
+                // Acumulación de masa visual por zonas
                 if (centroX < (anchoVideo * 0.33)) {
-                    sectorHorizontal = "izquierda";
+                    masaActual.izq += porcentaje;
                 } else if (centroX > (anchoVideo * 0.66)) {
-                    sectorHorizontal = "derecha";
+                    masaActual.der += porcentaje;
                 } else {
-                    sectorHorizontal = "centro";
-                }
-
-                // 1. ZONA ALTA / CARA (Escaneo por aproximación física)
-                // Cualquier objeto en la mitad superior cuya área crezca al acercarte (> 8%)
-                if (centroY < (altoVideo * 0.55) && porcentajeOcupado > 8) {
-                    hallazgos.push({ texto: "Peligro alto " + sectorHorizontal, tipo: "cara" });
-                }
-
-                // 2. FILTRO ANTI-FANTASMAS PARA PERSONAS (Exigimos 55% de certeza)
-                if (p.class === "person" && p.score > 0.55) {
-                    hallazgos.push({ texto: "Persona " + sectorHorizontal, tipo: "normal" });
-                }
-
-                // 3. MUEBLES Y ESTRUCTURAS
-                if (["chair", "couch", "table", "bed"].includes(p.class) || (p.score > 0.25 && porcentajeOcupado > 12)) {
-                    if (p.class !== "person") {
-                        hallazgos.push({ texto: "Mueble " + sectorHorizontal, tipo: "normal" });
+                    masaActual.centro += porcentaje;
+                    if (centroY < (altoVideo * 0.50)) {
+                        masaActual.arriba += porcentaje;
                     }
                 }
             }
 
-            // Gestión de avisos fluida
-            if (ahora - ultimoAvisoTiempo > 850) {
-                if (hallazgos.length > 0) {
-                    let elegido = hallazgos[indicePrioridad % hallazgos.length];
-                    indicePrioridad++;
+            // EVALUACIÓN DE APROXIMACIÓN (Aumento de volumen al caminar)
+            // 1. Detección alta por acercamiento
+            if (masaActual.arriba > 6) {
+                tipoAlerta = "cara";
+                avisoTexto = "Cara centro";
+            }
+            // 2. Detección de masa frontal (Sofás / Paredes)
+            else if (masaActual.centro > 12) {
+                avisoTexto = "Obstáculo centro";
+            }
+            // 3. Flujo periférico lateral (Izquierda / Derecha)
+            else if (masaActual.izq > 10) {
+                avisoTexto = "Peligro izquierda";
+            } else if (masaActual.der > 10) {
+                avisoTexto = "Peligro derecha";
+            }
 
-                    if (elegido.tipo === "cara") {
+            // Emisión de avisos
+            if (ahora - ultimoAvisoTiempo > 800) {
+                if (avisoTexto !== "") {
+                    if (tipoAlerta === "cara") {
                         emitirPitidoCara();
                     } else {
                         emitirPitido(900, 150);
                     }
 
-                    if (elegido.texto !== ultimoTextoAvisado) {
-                        decirTexto(elegido.texto);
-                        ultimoTextoAvisado = elegido.texto;
+                    if (avisoTexto !== ultimoTextoAvisado) {
+                        decirTexto(avisoTexto);
+                        ultimoTextoAvisado = avisoTexto;
                     }
-                    estado.innerText = "Aviso: " + elegido.texto;
+                    estado.innerText = "Alerta: " + avisoTexto;
                     ultimoAvisoTiempo = ahora;
                 } else {
                     ultimoTextoAvisado = "";
                     estado.innerText = "Vía libre";
                 }
             }
+
+            // Guardar lecturas
+            masaAnterior = masaActual;
 
             requestAnimationFrame(procesarRadarContinuo);
         }
