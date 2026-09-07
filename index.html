@@ -1,15 +1,75 @@
-// Distancia / Masa del objeto estimada en la zona central
-// Solo se activa la alerta si se supera la densidad del área de impacto (~1.50m)
-const UMBRAL_ZONA_CHOQUE = 500; // Requiere que el objeto esté muy cerca de la cámara
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Copiloto Uno - Control de Proximidad</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f0f0f0; }
+        .estado { font-size: 1.5em; margin: 20px; padding: 15px; border-radius: 8px; background: #fff; display: inline-block; }
+        button { padding: 10px 20px; font-size: 1em; cursor: pointer; }
+    </style>
+</head>
+<body>
 
-if (densidadCentro > UMBRAL_ZONA_CHOQUE) {
-    // Peligro de impacto o de golpear con el bastón
-    if (ahora - ultimoAvisoTiempo > 1200) { // Margen de tiempo para no repetir sin parar
-        emitirPitido(1200, 150); // Tono de advertencia
-        decirTexto("Atención, persona cerca");
-        ultimoAvisoTiempo = ahora;
-    }
-} else {
-    // Vía libre: silencio absoluto
-    ultimoTextoAvisado = "";
-}
+    <h1>Copiloto Uno - Módulo de Proximidad</h1>
+    <div id="pantallaEstado" class="estado">Distancia: Esperando datos...</div>
+    <br><br>
+    <!-- Botones de simulación para probar sin depender de sensores físicos -->
+    <button onclick="simularDistancia(12)">Simular 12m (Seguro)</button>
+    <button onclick="simularDistancia(7)">Simular 7m (Precaución)</button>
+    <button onclick="simularDistancia(4)">Simular 4m (PELIGRO - Pitido)</button>
+
+    <script>
+        // Umbrales en metros
+        const UMBRAL_PRECAUCION = 10.0;
+        const UMBRAL_PELIGRO = 5.0;
+
+        let ultimoAvisoTiempo = 0;
+        const intervaloAviso = 500; // ms entre pitidos
+
+        // Contexto de Audio Web
+        let audioCtx = null;
+
+        function emitirPitido(frecuencia, duracion) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            
+            osc.type = "sine";
+            osc.frequency.value = frecuencia;
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start();
+            setTimeout(() => osc.stop(), duracion);
+        }
+
+        function evaluarDistancia(distancia) {
+            const pantalla = document.getElementById("pantallaEstado");
+            const tiempoActual = Date.now();
+
+            if (distancia < UMBRAL_PELIGRO) {
+                pantalla.innerText = `Distancia: ${distancia}m - ¡PELIGRO DE IMPACTO!`;
+                pantalla.style.color = "red";
+
+                // Pitido con control de tiempo para no saturar
+                if (tiempoActual - ultimoAvisoTiempo > intervaloAviso) {
+                    emitirPitido(1200, 150);
+                    ultimoAvisoTiempo = tiempoActual;
+                }
+            } else if (distancia < UMBRAL_PRECAUCION) {
+                pantalla.innerText = `Distancia: ${distancia}m - Precaución`;
+                pantalla.style.color = "orange";
+            } else {
+                pantalla.innerText = `Distancia: ${distancia}m - Vía libre`;
+                pantalla.style.color = "green";
+            }
+        }
+
+        function simularDistancia(metros) {
+            evaluarDistancia(metros);
+        }
+    </script>
+</body>
+</html>
