@@ -65,7 +65,7 @@
         let esActivo = false;
         let ultimoAvisoTiempo = 0;
         let ultimoTextoAvisado = "";
-        let indicePrioridad = 0; // Para alternar avisos si hay múltiples objetos
+        let indicePrioridad = 0;
 
         function decirTexto(texto) {
             window.speechSynthesis.cancel();
@@ -150,13 +150,9 @@
             let areaPantalla = anchoVideo * altoVideo;
 
             let predicciones = await model.detect(video);
-            
-            // Lista para recolectar TODOS los hallazgos sin bloquear el bucle
             let hallazgos = [];
 
             for (let p of predicciones) {
-                if (p.score < 0.18) continue;
-
                 let x = p.bbox[0];
                 let y = p.bbox[1];
                 let ancho = p.bbox[2];
@@ -176,28 +172,28 @@
                     sectorHorizontal = "centro";
                 }
 
-                // 1. Zona Cara (Arriba Centro con masa clara)
-                if (centroY < (altoVideo * 0.50) && sectorHorizontal === "centro" && porcentajeOcupado > 12) {
-                    hallazgos.push({ texto: "Cara centro", tipo: "cara" });
+                // 1. ZONA ALTA / CARA (Escaneo por aproximación física)
+                // Cualquier objeto en la mitad superior cuya área crezca al acercarte (> 8%)
+                if (centroY < (altoVideo * 0.55) && porcentajeOcupado > 8) {
+                    hallazgos.push({ texto: "Peligro alto " + sectorHorizontal, tipo: "cara" });
                 }
-                // 2. Muebles / Sofás / Mesas
-                else if (["chair", "couch", "table", "bed"].includes(p.class) || porcentajeOcupado > 10) {
-                    hallazgos.push({ texto: "Mueble " + sectorHorizontal, tipo: "normal" });
-                }
-                // 3. Personas
-                else if (p.class === "person") {
+
+                // 2. FILTRO ANTI-FANTASMAS PARA PERSONAS (Exigimos 55% de certeza)
+                if (p.class === "person" && p.score > 0.55) {
                     hallazgos.push({ texto: "Persona " + sectorHorizontal, tipo: "normal" });
                 }
-                // 4. Cualquier otro obstáculo periférico
-                else if (sectorHorizontal !== "centro") {
-                    hallazgos.push({ texto: "Peligro " + sectorHorizontal, tipo: "normal" });
+
+                // 3. MUEBLES Y ESTRUCTURAS
+                if (["chair", "couch", "table", "bed"].includes(p.class) || (p.score > 0.25 && porcentajeOcupado > 12)) {
+                    if (p.class !== "person") {
+                        hallazgos.push({ texto: "Mueble " + sectorHorizontal, tipo: "normal" });
+                    }
                 }
             }
 
-            // Gestión de avisos fluida (cada 800 ms)
-            if (ahora - ultimoAvisoTiempo > 800) {
+            // Gestión de avisos fluida
+            if (ahora - ultimoAvisoTiempo > 850) {
                 if (hallazgos.length > 0) {
-                    // Seleccionamos el objeto según el turno para no atascarnos en uno solo
                     let elegido = hallazgos[indicePrioridad % hallazgos.length];
                     indicePrioridad++;
 
