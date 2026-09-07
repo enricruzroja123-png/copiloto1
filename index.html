@@ -65,12 +65,13 @@
         let esActivo = false;
         let ultimoAvisoTiempo = 0;
         let ultimoTextoAvisado = "";
+        let indicePrioridad = 0; // Para alternar avisos si hay múltiples objetos
 
         function decirTexto(texto) {
             window.speechSynthesis.cancel();
             let utterance = new SpeechSynthesisUtterance(texto);
             utterance.lang = 'es-ES';
-            utterance.rate = 1.25; // Voz más rápida y reactiva
+            utterance.rate = 1.25;
             window.speechSynthesis.speak(utterance);
         }
 
@@ -149,13 +150,12 @@
             let areaPantalla = anchoVideo * altoVideo;
 
             let predicciones = await model.detect(video);
-            let peligroCara = false;
-            let obstaculoInminente = false;
-            let avisoTexto = "";
+            
+            // Lista para recolectar TODOS los hallazgos sin bloquear el bucle
+            let hallazgos = [];
 
             for (let p of predicciones) {
-                // Aceptamos certezas muy bajas (15%) para respuesta al instante
-                if (p.score < 0.15) continue;
+                if (p.score < 0.18) continue;
 
                 let x = p.bbox[0];
                 let y = p.bbox[1];
@@ -176,49 +176,42 @@
                     sectorHorizontal = "centro";
                 }
 
-                // 1. Detección inmediata en zona alta / cara (Basta con que ocupe más de un 5% al centro-arriba)
-                if (centroY < (altoVideo * 0.65) && sectorHorizontal === "centro" && porcentajeOcupado > 5) {
-                    peligroCara = true;
-                    avisoTexto = "Cara centro";
-                    break;
+                // 1. Zona Cara (Arriba Centro con masa clara)
+                if (centroY < (altoVideo * 0.50) && sectorHorizontal === "centro" && porcentajeOcupado > 12) {
+                    hallazgos.push({ texto: "Cara centro", tipo: "cara" });
                 }
-
-                // 2. Detección de Muebles / Sofás (Sensibilidad bajada al 10% de ocupación)
-                if (["chair", "couch", "table", "bed", "tv"].includes(p.class) || porcentajeOcupado > 10) {
-                    obstaculoInminente = true;
-                    if (["chair", "couch", "bed"].includes(p.class)) {
-                        avisoTexto = "Mueble " + sectorHorizontal;
-                    } else {
-                        avisoTexto = "Peligro " + sectorHorizontal;
-                    }
-                    break;
+                // 2. Muebles / Sofás / Mesas
+                else if (["chair", "couch", "table", "bed"].includes(p.class) || porcentajeOcupado > 10) {
+                    hallazgos.push({ texto: "Mueble " + sectorHorizontal, tipo: "normal" });
                 }
-
-                // 3. Peatones / Personas
-                if (p.class === "person") {
-                    avisoTexto = "Persona " + sectorHorizontal;
-                    if (sectorHorizontal === "centro") obstaculoInminente = true;
-                    break;
+                // 3. Personas
+                else if (p.class === "person") {
+                    hallazgos.push({ texto: "Persona " + sectorHorizontal, tipo: "normal" });
+                }
+                // 4. Cualquier otro obstáculo periférico
+                else if (sectorHorizontal !== "centro") {
+                    hallazgos.push({ texto: "Peligro " + sectorHorizontal, tipo: "normal" });
                 }
             }
 
-            // Emisión ultra-rápida (Reducido a 700 milisegundos para no perder el primer pase)
-            if (ahora - ultimoAvisoTiempo > 700) {
-                if (peligroCara) {
-                    emitirPitidoCara();
-                    if (avisoTexto !== ultimoTextoAvisado) {
-                        decirTexto("Cara centro");
-                        ultimoTextoAvisado = avisoTexto;
+            // Gestión de avisos fluida (cada 800 ms)
+            if (ahora - ultimoAvisoTiempo > 800) {
+                if (hallazgos.length > 0) {
+                    // Seleccionamos el objeto según el turno para no atascarnos en uno solo
+                    let elegido = hallazgos[indicePrioridad % hallazgos.length];
+                    indicePrioridad++;
+
+                    if (elegido.tipo === "cara") {
+                        emitirPitidoCara();
+                    } else {
+                        emitirPitido(900, 150);
                     }
-                    estado.innerText = "¡ALERTA!: Cara centro";
-                    ultimoAvisoTiempo = ahora;
-                } else if (avisoTexto !== "") {
-                    if (obstaculoInminente) emitirPitido(900, 150);
-                    if (avisoTexto !== ultimoTextoAvisado) {
-                        decirTexto(avisoTexto);
-                        ultimoTextoAvisado = avisoTexto;
+
+                    if (elegido.texto !== ultimoTextoAvisado) {
+                        decirTexto(elegido.texto);
+                        ultimoTextoAvisado = elegido.texto;
                     }
-                    estado.innerText = "Detectado: " + avisoTexto;
+                    estado.innerText = "Aviso: " + elegido.texto;
                     ultimoAvisoTiempo = ahora;
                 } else {
                     ultimoTextoAvisado = "";
