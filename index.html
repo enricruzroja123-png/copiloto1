@@ -3,9 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Guía Sonora - Radar de Navegación</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <title>Radar Robótico - Guía Sonora</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -35,6 +33,9 @@
             display: block;
             margin: 0 auto 15px auto;
         }
+        #canvas {
+            display: none;
+        }
         #estado {
             font-size: 22px;
             color: #ffeb3b;
@@ -49,15 +50,17 @@
 </head>
 <body>
 
-    <h1>Guía Sonora</h1>
-    <button id="btnIniciar">INICIAR RADAR</button>
+    <h1>Radar Robótico de Navegación</h1>
+    <button id="btnIniciar">INICIAR SENSOR ROBÓTICO</button>
     
     <video id="video" autoplay playsinline muted></video>
-    <div id="estado">Cargando IA...</div>
+    <canvas id="canvas"></canvas>
+    <div id="estado">Sensor listo. Pulsa Iniciar.</div>
 
     <script>
-        let model = null;
         let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let ctx = canvas.getContext('2d');
         let estado = document.getElementById('estado');
         let btnIniciar = document.getElementById('btnIniciar');
         
@@ -65,15 +68,12 @@
         let esActivo = false;
         let ultimoAvisoTiempo = 0;
         let ultimoTextoAvisado = "";
-        
-        // Historial de masa para detectar aproximación rápida
-        let masaAnterior = { izq: 0, centro: 0, der: 0 };
 
         function decirTexto(texto) {
             window.speechSynthesis.cancel();
             let utterance = new SpeechSynthesisUtterance(texto);
             utterance.lang = 'es-ES';
-            utterance.rate = 1.3; // Fluidez de voz humana acelerada
+            utterance.rate = 1.3;
             window.speechSynthesis.speak(utterance);
         }
 
@@ -97,23 +97,19 @@
             setTimeout(() => emitirPitido(1400, 70), 180);
         }
 
-        async function cargarModelo() {
-            estado.innerText = "Cargando IA...";
-            model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-            estado.innerText = "IA Lista. Pulsa Iniciar.";
-        }
-
-        cargarModelo();
-
         async function IniciarCamara() {
             try {
                 let stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+                    video: { facingMode: "environment", width: { ideal: 320 }, height: { ideal: 240 } },
                     audio: false
                 });
                 video.srcObject = stream;
                 return new Promise((resolve) => {
-                    video.onloadedmetadata = () => { resolve(true); };
+                    video.onloadedmetadata = () => { 
+                        canvas.width = 160;
+                        canvas.height = 120;
+                        resolve(true); 
+                    };
                 });
             } catch (err) {
                 estado.innerText = "Error accediendo a la cámara.";
@@ -123,91 +119,84 @@
         }
 
         btnIniciar.addEventListener('click', async () => {
-            if (!model) {
-                decirTexto("Cargando modelo.");
-                return;
-            }
-
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             audioCtx.resume();
 
             btnIniciar.style.display = 'none';
-            estado.innerText = "Iniciando...";
+            estado.innerText = "Iniciando sensores...";
 
             let camaraLista = await IniciarCamara();
             if (camaraLista) {
                 esActivo = true;
-                estado.innerText = "Radar Activo";
-                decirTexto("Radar activo. Modo flujo visual.");
-                procesarRadarContinuo();
+                estado.innerText = "Sensor Robótico Activo";
+                decirTexto("Sensor robótico listo.");
+                procesarEscaneoRobotico();
             }
         });
 
-        async function procesarRadarContinuo() {
+        function procesarEscaneoRobotico() {
             if (!esActivo) return;
 
             let ahora = Date.now();
-            let anchoVideo = video.videoWidth || 640;
-            let altoVideo = video.videoHeight || 480;
-            let areaPantalla = anchoVideo * altoVideo;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            let frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            let pixels = frame.data;
 
-            let predicciones = await model.detect(video);
-            
-            let masaActual = { izq: 0, centro: 0, der: 0, arriba: 0 };
-            let avisoTexto = "";
-            let tipoAlerta = "normal";
+            // Matriz de ocupación por cuadrantes (Arriba, Izquierda, Centro, Derecha, Abajo)
+            let densidad = { arriba: 0, izq: 0, centro: 0, der: 0, abajo: 0 };
+            let totalPixels = pixels.length / 4;
 
-            for (let p of predicciones) {
-                // Captura amplia de cualquier objeto detectado
-                if (p.score < 0.15) continue;
+            // Análisis de contraste y bordes de la toma
+            for (let i = 0; i < pixels.length; i += 16) {
+                let r = pixels[i];
+                let g = pixels[i + 1];
+                let b = pixels[i + 2];
+                
+                // Métrica de masa/brillo
+                let brillo = (r + g + b) / 3;
+                let pixelIndex = i / 4;
+                let x = pixelIndex % canvas.width;
+                let y = Math.floor(pixelIndex / canvas.width);
 
-                let x = p.bbox[0];
-                let y = p.bbox[1];
-                let ancho = p.bbox[2];
-                let alto = p.bbox[3];
-                let areaObjeto = ancho * alto;
-                let porcentaje = (areaObjeto / areaPantalla) * 100;
-
-                let centroX = x + (ancho / 2);
-                let centroY = y + (alto / 2);
-
-                // Acumulación de masa visual por zonas
-                if (centroX < (anchoVideo * 0.33)) {
-                    masaActual.izq += porcentaje;
-                } else if (centroX > (anchoVideo * 0.66)) {
-                    masaActual.der += porcentaje;
-                } else {
-                    masaActual.centro += porcentaje;
-                    if (centroY < (altoVideo * 0.50)) {
-                        masaActual.arriba += porcentaje;
+                if (brillo < 110) { // Detector de presencia física / obstáculo
+                    if (y < canvas.height * 0.40 && x > canvas.width * 0.25 && x < canvas.width * 0.75) {
+                        densidad.arriba++;
+                    } else if (x < canvas.width * 0.30) {
+                        densidad.izq++;
+                    } else if (x > canvas.width * 0.70) {
+                        densidad.der++;
+                    } else if (y > canvas.height * 0.65) {
+                        densidad.abajo++;
+                    } else {
+                        densidad.centro++;
                     }
                 }
             }
 
-            // EVALUACIÓN DE APROXIMACIÓN (Aumento de volumen al caminar)
-            // 1. Detección alta por acercamiento
-            if (masaActual.arriba > 6) {
+            let avisoTexto = "";
+            let tipoAlerta = "normal";
+
+            // Prioridades de colisión robótica
+            if (densidad.arriba > 350) {
                 tipoAlerta = "cara";
                 avisoTexto = "Cara centro";
-            }
-            // 2. Detección de masa frontal (Sofás / Paredes)
-            else if (masaActual.centro > 12) {
+            } else if (densidad.centro > 500) {
                 avisoTexto = "Obstáculo centro";
-            }
-            // 3. Flujo periférico lateral (Izquierda / Derecha)
-            else if (masaActual.izq > 10) {
+            } else if (densidad.izq > 450) {
                 avisoTexto = "Peligro izquierda";
-            } else if (masaActual.der > 10) {
+            } else if (densidad.der > 450) {
                 avisoTexto = "Peligro derecha";
+            } else if (densidad.abajo > 600) {
+                avisoTexto = "Suelo centro";
             }
 
-            // Emisión de avisos
-            if (ahora - ultimoAvisoTiempo > 800) {
+            // Emisión sonora súper fluida
+            if (ahora - ultimoAvisoTiempo > 750) {
                 if (avisoTexto !== "") {
                     if (tipoAlerta === "cara") {
                         emitirPitidoCara();
                     } else {
-                        emitirPitido(900, 150);
+                        emitirPitido(900, 120);
                     }
 
                     if (avisoTexto !== ultimoTextoAvisado) {
@@ -222,10 +211,7 @@
                 }
             }
 
-            // Guardar lecturas
-            masaAnterior = masaActual;
-
-            requestAnimationFrame(procesarRadarContinuo);
+            requestAnimationFrame(procesarEscaneoRobotico);
         }
     </script>
 </body>
