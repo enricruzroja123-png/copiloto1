@@ -70,13 +70,12 @@
         let ultimoAvisoTiempo = 0;
         let ultimoTextoAvisado = "";
         
-        // Control del bucle (FPS)
-        const FPS_OBJETIVO = 12; // 12 fotogramas por segundo es óptimo y no satura la CPU
+        // Control de rendimiento (12 fotogramas por segundo)
+        const FPS_OBJETIVO = 12;
         const INTERVALO_MS = 1000 / FPS_OBJETIVO;
 
         function decirTexto(texto) {
             if ('speechSynthesis' in window) {
-                // Evita cancelar si es exactamente el mismo texto hablando
                 if (window.speechSynthesis.speaking && texto === ultimoTextoAvisado) return;
                 
                 window.speechSynthesis.cancel();
@@ -107,11 +106,6 @@
             } catch (e) {
                 console.error("Error reproduciendo audio:", e);
             }
-        }
-
-        function emitirPitidoCara() {
-            emitirPitido(1400, 70);
-            setTimeout(() => emitirPitido(1400, 70), 90);
         }
 
         async function IniciarCamara() {
@@ -154,7 +148,6 @@
         function procesarEscaneoRobotico(timestamp) {
             if (!esActivo) return;
 
-            // Control de tiempo para limitar la ejecución a 12 FPS
             if (timestamp - ultimoProcesadoTiempo < INTERVALO_MS) {
                 requestAnimationFrame(procesarEscaneoRobotico);
                 return;
@@ -165,61 +158,43 @@
             const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const pixels = frame.data;
 
-            // Cuadrantes de densidad
-            const densidad = { arriba: 0, izq: 0, centro: 0, der: 0, abajo: 0 };
+            // Definición de la zona central de escaneo (del 20% al 80% en X e Y)
+            const minX = canvas.width * 0.20;
+            const maxX = canvas.width * 0.80;
+            const minY = canvas.height * 0.20;
+            const maxY = canvas.height * 0.80;
 
-            // Salto de 16 en 16 bytes (cada 4 píxeles) para aligerar la carga
+            let contadorCentro = 0;
+
             for (let i = 0; i < pixels.length; i += 16) {
-                const r = pixels[i];
-                const g = pixels[i + 1];
-                const b = pixels[i + 2];
-                
-                const brillo = (r + g + b) / 3;
                 const pixelIndex = i / 4;
                 const x = pixelIndex % canvas.width;
                 const y = Math.floor(pixelIndex / canvas.width);
 
-                if (brillo < 90) { // Umbral ajustado para reducir falsos positivos
-                    if (y < canvas.height * 0.40 && x > canvas.width * 0.25 && x < canvas.width * 0.75) {
-                        densidad.arriba++;
-                    } else if (x < canvas.width * 0.30) {
-                        densidad.izq++;
-                    } else if (x > canvas.width * 0.70) {
-                        densidad.der++;
-                    } else if (y > canvas.height * 0.65) {
-                        densidad.abajo++;
-                    } else {
-                        densidad.centro++;
+                // Evaluar únicamente si el píxel cae dentro de la zona central
+                if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
+                    const r = pixels[i];
+                    const g = pixels[i + 1];
+                    const b = pixels[i + 2];
+                    const brillo = (r + g + b) / 3;
+
+                    if (brillo < 100) { 
+                        contadorCentro++;
                     }
                 }
             }
 
             let avisoTexto = "";
-            let tipoAlerta = "normal";
 
-            // Umbrales de evaluación
-            if (densidad.arriba > 250) {
-                tipoAlerta = "cara";
-                avisoTexto = "Cara centro";
-            } else if (densidad.centro > 350) {
-                avisoTexto = "Obstáculo centro";
-            } else if (densidad.izq > 300) {
-                avisoTexto = "Peligro izquierda";
-            } else if (densidad.der > 300) {
-                avisoTexto = "Peligro derecha";
-            } else if (densidad.abajo > 400) {
-                avisoTexto = "Suelo centro";
+            // Umbral de activación para la zona central
+            if (contadorCentro > 300) {
+                avisoTexto = "Obstáculo al centro";
             }
 
-            // Gestión de avisos sonoros (cada 900 ms como máximo)
             const ahora = Date.now();
             if (ahora - ultimoAvisoTiempo > 900) {
                 if (avisoTexto !== "") {
-                    if (tipoAlerta === "cara") {
-                        emitirPitidoCara();
-                    } else {
-                        emitirPitido(900, 100);
-                    }
+                    emitirPitido(900, 100);
 
                     if (avisoTexto !== ultimoTextoAvisado) {
                         decirTexto(avisoTexto);
