@@ -58,48 +58,65 @@
     <div id="estado">Sensor listo. Pulsa Iniciar.</div>
 
     <script>
-        let video = document.getElementById('video');
-        let canvas = document.getElementById('canvas');
-        let ctx = canvas.getContext('2d');
-        let estado = document.getElementById('estado');
-        let btnIniciar = document.getElementById('btnIniciar');
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const estado = document.getElementById('estado');
+        const btnIniciar = document.getElementById('btnIniciar');
         
         let audioCtx = null;
         let esActivo = false;
+        let ultimoProcesadoTiempo = 0;
         let ultimoAvisoTiempo = 0;
         let ultimoTextoAvisado = "";
+        
+        // Control del bucle (FPS)
+        const FPS_OBJETIVO = 12; // 12 fotogramas por segundo es óptimo y no satura la CPU
+        const INTERVALO_MS = 1000 / FPS_OBJETIVO;
 
         function decirTexto(texto) {
-            window.speechSynthesis.cancel();
-            let utterance = new SpeechSynthesisUtterance(texto);
-            utterance.lang = 'es-ES';
-            utterance.rate = 1.3;
-            window.speechSynthesis.speak(utterance);
+            if ('speechSynthesis' in window) {
+                // Evita cancelar si es exactamente el mismo texto hablando
+                if (window.speechSynthesis.speaking && texto === ultimoTextoAvisado) return;
+                
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(texto);
+                utterance.lang = 'es-ES';
+                utterance.rate = 1.2;
+                window.speechSynthesis.speak(utterance);
+            }
         }
 
         function emitirPitido(frecuencia, duracion) {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if (audioCtx.state === 'suspended') audioCtx.resume();
-            let osc = audioCtx.createOscillator();
-            let gain = audioCtx.createGain();
-            osc.type = 'sine';
-            osc.frequency.value = frecuencia;
-            gain.gain.value = 0.2;
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + (duracion / 1000));
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(frecuencia, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.start();
+                osc.stop(audioCtx.currentTime + (duracion / 1000));
+            } catch (e) {
+                console.error("Error reproduciendo audio:", e);
+            }
         }
 
         function emitirPitidoCara() {
             emitirPitido(1400, 70);
             setTimeout(() => emitirPitido(1400, 70), 90);
-            setTimeout(() => emitirPitido(1400, 70), 180);
         }
 
         async function IniciarCamara() {
             try {
-                let stream = await navigator.mediaDevices.getUserMedia({
+                const stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: "environment", width: { ideal: 320 }, height: { ideal: 240 } },
                     audio: false
                 });
@@ -120,45 +137,49 @@
 
         btnIniciar.addEventListener('click', async () => {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            audioCtx.resume();
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
 
             btnIniciar.style.display = 'none';
             estado.innerText = "Iniciando sensores...";
 
-            let camaraLista = await IniciarCamara();
+            const camaraLista = await IniciarCamara();
             if (camaraLista) {
                 esActivo = true;
                 estado.innerText = "Sensor Robótico Activo";
                 decirTexto("Sensor robótico listo.");
-                procesarEscaneoRobotico();
+                requestAnimationFrame(procesarEscaneoRobotico);
             }
         });
 
-        function procesarEscaneoRobotico() {
+        function procesarEscaneoRobotico(timestamp) {
             if (!esActivo) return;
 
-            let ahora = Date.now();
+            // Control de tiempo para limitar la ejecución a 12 FPS
+            if (timestamp - ultimoProcesadoTiempo < INTERVALO_MS) {
+                requestAnimationFrame(procesarEscaneoRobotico);
+                return;
+            }
+            ultimoProcesadoTiempo = timestamp;
+
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            let frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            let pixels = frame.data;
+            const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const pixels = frame.data;
 
-            // Matriz de ocupación por cuadrantes (Arriba, Izquierda, Centro, Derecha, Abajo)
-            let densidad = { arriba: 0, izq: 0, centro: 0, der: 0, abajo: 0 };
-            let totalPixels = pixels.length / 4;
+            // Cuadrantes de densidad
+            const densidad = { arriba: 0, izq: 0, centro: 0, der: 0, abajo: 0 };
 
-            // Análisis de contraste y bordes de la toma
+            // Salto de 16 en 16 bytes (cada 4 píxeles) para aligerar la carga
             for (let i = 0; i < pixels.length; i += 16) {
-                let r = pixels[i];
-                let g = pixels[i + 1];
-                let b = pixels[i + 2];
+                const r = pixels[i];
+                const g = pixels[i + 1];
+                const b = pixels[i + 2];
                 
-                // Métrica de masa/brillo
-                let brillo = (r + g + b) / 3;
-                let pixelIndex = i / 4;
-                let x = pixelIndex % canvas.width;
-                let y = Math.floor(pixelIndex / canvas.width);
+                const brillo = (r + g + b) / 3;
+                const pixelIndex = i / 4;
+                const x = pixelIndex % canvas.width;
+                const y = Math.floor(pixelIndex / canvas.width);
 
-                if (brillo < 110) { // Detector de presencia física / obstáculo
+                if (brillo < 90) { // Umbral ajustado para reducir falsos positivos
                     if (y < canvas.height * 0.40 && x > canvas.width * 0.25 && x < canvas.width * 0.75) {
                         densidad.arriba++;
                     } else if (x < canvas.width * 0.30) {
@@ -176,27 +197,28 @@
             let avisoTexto = "";
             let tipoAlerta = "normal";
 
-            // Prioridades de colisión robótica
-            if (densidad.arriba > 350) {
+            // Umbrales de evaluación
+            if (densidad.arriba > 250) {
                 tipoAlerta = "cara";
                 avisoTexto = "Cara centro";
-            } else if (densidad.centro > 500) {
+            } else if (densidad.centro > 350) {
                 avisoTexto = "Obstáculo centro";
-            } else if (densidad.izq > 450) {
+            } else if (densidad.izq > 300) {
                 avisoTexto = "Peligro izquierda";
-            } else if (densidad.der > 450) {
+            } else if (densidad.der > 300) {
                 avisoTexto = "Peligro derecha";
-            } else if (densidad.abajo > 600) {
+            } else if (densidad.abajo > 400) {
                 avisoTexto = "Suelo centro";
             }
 
-            // Emisión sonora súper fluida
-            if (ahora - ultimoAvisoTiempo > 750) {
+            // Gestión de avisos sonoros (cada 900 ms como máximo)
+            const ahora = Date.now();
+            if (ahora - ultimoAvisoTiempo > 900) {
                 if (avisoTexto !== "") {
                     if (tipoAlerta === "cara") {
                         emitirPitidoCara();
                     } else {
-                        emitirPitido(900, 120);
+                        emitirPitido(900, 100);
                     }
 
                     if (avisoTexto !== ultimoTextoAvisado) {
