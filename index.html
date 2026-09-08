@@ -1,74 +1,107 @@
-<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Copiloto Uno - Control de Proximidad</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copiloto Uno</title>
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f0f0f0; }
-        .estado { font-size: 1.5em; margin: 20px; padding: 15px; border-radius: 8px; background: #fff; display: inline-block; }
-        button { padding: 10px 20px; font-size: 1em; cursor: pointer; }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #00e676;
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 230, 118, 0.3);
+            background: #000;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .btn {
+            background-color: #00e676;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 30px;
+            margin-top: 20px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .btn:active {
+            transform: scale(0.98);
+        }
+        #status {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #bbb;
+        }
     </style>
 </head>
 <body>
 
-    <h1>Copiloto Uno - Módulo de Proximidad</h1>
-    <div id="pantallaEstado" class="estado">Distancia: Esperando datos...</div>
-    <br><br>
-    <!-- Botones de simulación para probar sin depender de sensores físicos -->
-    <button onclick="simularDistancia(12)">Simular 12m (Seguro)</button>
-    <button onclick="simularDistancia(7)">Simular 7m (Precaución)</button>
-    <button onclick="simularDistancia(4)">Simular 4m (PELIGRO - Pitido)</button>
+    <h1>COPILOTO UNO</h1>
+    
+    <div id="video-container">
+        <video id="webcam" autoplay playsinline muted></video>
+    </div>
+
+    <button class="btn" onclick="iniciarCopiloto()">ACTIVAR COPILOTO</button>
+    <div id="status">Presiona el botón para activar cámara y voz.</div>
 
     <script>
-        // Umbrales en metros
-        const UMBRAL_PRECAUCION = 10.0;
-        const UMBRAL_PELIGRO = 5.0;
+        const video = document.getElementById('webcam');
+        const statusDiv = document.getElementById('status');
+        let vozActiva = false;
 
-        let ultimoAvisoTiempo = 0;
-        const intervaloAviso = 500; // ms entre pitidos
+        async function iniciarCopiloto() {
+            try {
+                // Solicitar acceso a la cámara trasera del móvil
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: "environment" } },
+                    audio: false
+                }).catch(() => {
+                    // Si falla la trasera (ej. en PC), usar cualquier cámara disponible
+                    return navigator.mediaDevices.getUserMedia({ video: true });
+                });
 
-        // Contexto de Audio Web
-        let audioCtx = null;
-
-        function emitirPitido(frecuencia, duracion) {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            
-            let osc = audioCtx.createOscillator();
-            let gain = audioCtx.createGain();
-            
-            osc.type = "sine";
-            osc.frequency.value = frecuencia;
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            
-            osc.start();
-            setTimeout(() => osc.stop(), duracion);
-        }
-
-        function evaluarDistancia(distancia) {
-            const pantalla = document.getElementById("pantallaEstado");
-            const tiempoActual = Date.now();
-
-            if (distancia < UMBRAL_PELIGRO) {
-                pantalla.innerText = `Distancia: ${distancia}m - ¡PELIGRO DE IMPACTO!`;
-                pantalla.style.color = "red";
-
-                // Pitido con control de tiempo para no saturar
-                if (tiempoActual - ultimoAvisoTiempo > intervaloAviso) {
-                    emitirPitido(1200, 150);
-                    ultimoAvisoTiempo = tiempoActual;
-                }
-            } else if (distancia < UMBRAL_PRECAUCION) {
-                pantalla.innerText = `Distancia: ${distancia}m - Precaución`;
-                pantalla.style.color = "orange";
-            } else {
-                pantalla.innerText = `Distancia: ${distancia}m - Vía libre`;
-                pantalla.style.color = "green";
+                video.srcObject = stream;
+                statusDiv.innerText = "Cámara y voz del Copiloto activadas correctamente.";
+                
+                // Probar motor de voz nativo del móvil
+                hablar("Copiloto Uno activado y listo.");
+            } catch (err) {
+                statusDiv.innerText = "Error al acceder a la cámara: " + err.message;
             }
         }
 
-        function simularDistancia(metros) {
-            evaluarDistancia(metros);
+        function hablar(texto) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); // Limpiar voz anterior
+                const mensaje = new SpeechSynthesisUtterance(texto);
+                mensaje.lang = 'es-ES';
+                mensaje.rate = 1.0;
+                window.speechSynthesis.speak(mensaje);
+            }
         }
     </script>
 </body>
