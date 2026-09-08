@@ -45,7 +45,6 @@
       height: 100%;
       pointer-events: none;
     }
-    /* Clase CSS para aplicar el giro en espejo si se activa */
     .efecto-espejo {
       transform: scaleX(-1);
     }
@@ -123,7 +122,6 @@
     const intervaloAviso = 2500;
     let modoEspejoActivo = true;
 
-    // Conmutador manual para el modo espejo (flip horizontal)
     botonEspejo.addEventListener('click', () => {
       modoEspejoActivo = !modoEspejoActivo;
       if (modoEspejoActivo) {
@@ -173,7 +171,8 @@
 
         ctx.clearRect(0, 0, anchoPantalla, altoPantalla);
 
-        const predictions = await model.detect(video, 10, 0.35);
+        // Umbral subido al 0.55 (55% de certeza) para evitar falsas personas en sombras
+        const predictions = await model.detect(video, 10, 0.55);
 
         let detectadosEnFotograma = 0;
 
@@ -184,10 +183,8 @@
             detectadosEnFotograma++;
             const [x1, y1, width, height] = prediction.bbox;
             
-            // Calculamos la posición del centro del objeto
             let centroX = x1 + (width / 2);
 
-            // Si el modo espejo está activo, invertimos matemáticamente el cálculo de la posición
             if (modoEspejoActivo) {
               centroX = anchoPantalla - centroX;
             }
@@ -195,7 +192,6 @@
             const areaObjeto = width * height;
             const proporcionArea = areaObjeto / areaTotal;
 
-            // Dibujar rectángulo
             ctx.strokeStyle = '#00ff00';
             ctx.lineWidth = 4;
             ctx.strokeRect(x1, y1, width, height);
