@@ -1,4 +1,4 @@
-!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -45,16 +45,27 @@
       height: 100%;
       pointer-events: none;
     }
-    #boton-iniciar {
+    /* Clase CSS para aplicar el giro en espejo si se activa */
+    .efecto-espejo {
+      transform: scaleX(-1);
+    }
+    .controles {
+      display: flex;
+      gap: 10px;
       margin: 15px 0;
-      padding: 15px 25px;
-      font-size: 1rem;
+    }
+    button {
+      padding: 12px 20px;
+      font-size: 0.95rem;
       font-weight: bold;
       color: #fff;
       background-color: #00c853;
       border: none;
       border-radius: 8px;
       cursor: pointer;
+    }
+    #boton-espejo {
+      background-color: #29b6f6;
     }
     #panel-estado {
       width: 90%;
@@ -73,11 +84,15 @@
   <h1>COPILOTO UNO: WEB</h1>
   
   <div id="contenedor-visor">
-    <video id="webcam" autoplay playsinline muted></video>
-    <canvas id="canvas"></canvas>
+    <video id="webcam" autoplay playsinline muted class="efecto-espejo"></video>
+    <canvas id="canvas" class="efecto-espejo"></canvas>
   </div>
 
-  <button id="boton-iniciar">INICIAR DETECCIÓN</button>
+  <div class="controles">
+    <button id="boton-iniciar">INICIAR DETECCIÓN</button>
+    <button id="boton-espejo">ESPEJO: ACTIVADO</button>
+  </div>
+
   <div id="panel-estado">Estado: Presiona el botón para cargar la IA.</div>
 
   <script>
@@ -100,11 +115,27 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const botonIniciar = document.getElementById('boton-iniciar');
+    const botonEspejo = document.getElementById('boton-espejo');
     const panelEstado = document.getElementById('panel-estado');
 
     let model = null;
     let ultimoAvisoTiempo = 0;
     const intervaloAviso = 2500;
+    let modoEspejoActivo = true;
+
+    // Conmutador manual para el modo espejo (flip horizontal)
+    botonEspejo.addEventListener('click', () => {
+      modoEspejoActivo = !modoEspejoActivo;
+      if (modoEspejoActivo) {
+        video.classList.add('efecto-espejo');
+        canvas.classList.add('efecto-espejo');
+        botonEspejo.innerText = "ESPEJO: ACTIVADO";
+      } else {
+        video.classList.remove('efecto-espejo');
+        canvas.classList.remove('efecto-espejo');
+        botonEspejo.innerText = "ESPEJO: DESACTIVADO";
+      }
+    });
 
     function hablar(texto) {
       if ('speechSynthesis' in window) {
@@ -142,7 +173,6 @@
 
         ctx.clearRect(0, 0, anchoPantalla, altoPantalla);
 
-        // Realizar predicción directa sobre el elemento de vídeo
         const predictions = await model.detect(video, 10, 0.35);
 
         let detectadosEnFotograma = 0;
@@ -153,11 +183,19 @@
           if (OBJETOS_TRADUCIDOS[claseIngles]) {
             detectadosEnFotograma++;
             const [x1, y1, width, height] = prediction.bbox;
-            const centroX = x1 + (width / 2);
+            
+            // Calculamos la posición del centro del objeto
+            let centroX = x1 + (width / 2);
+
+            // Si el modo espejo está activo, invertimos matemáticamente el cálculo de la posición
+            if (modoEspejoActivo) {
+              centroX = anchoPantalla - centroX;
+            }
+
             const areaObjeto = width * height;
             const proporcionArea = areaObjeto / areaTotal;
 
-            // Dibujar rectángulo de seguimiento
+            // Dibujar rectángulo
             ctx.strokeStyle = '#00ff00';
             ctx.lineWidth = 4;
             ctx.strokeRect(x1, y1, width, height);
@@ -214,7 +252,6 @@
         await iniciarCamara();
         panelEstado.innerText = "Estado: Descargando red neuronal COCO-SSD...";
         
-        // Carga explícita del modelo ligero para móviles
         model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
         
         panelEstado.innerText = "Estado: ¡Copiloto listo y detectando!";
