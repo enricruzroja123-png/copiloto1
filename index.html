@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Copiloto Uno - Control FPS</title>
+    <title>Copiloto Uno - Motor Python a Web</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
@@ -23,7 +23,7 @@
         <video id="webcam" autoplay playsinline muted></video>
     </div>
 
-    <button class="btn" onclick="iniciarCopiloto()">ACTIVAR DETECCIÓN</button>
+    <button class="btn" onclick="iniciarCopiloto()">ACTIVAR COPILOTO</button>
     <div id="status">Presiona para activar...</div>
 
     <script>
@@ -31,16 +31,17 @@
         const statusDiv = document.getElementById('status');
         let modeloIA = null;
         let detectando = false;
-        let ultimoAviso = 0;
-        let ultimoEscaneoFPS = 0;
-        const FPS_OBJETIVO = 8; // Analizar únicamente 8 fotogramas por segundo para evitar fantasmas
-        const INTERVALO_FPS = 1000 / FPS_OBJETIVO;
+        
+        // Variables calcadas de nuestro script de Python
+        let ultimoAvisoTiempo = 0;
+        const intervaloAviso = 2.5 * 1000; // 2.5 segundos entre avisos
+        let contadorFotogramas = 0;
 
-        const traducciones = {
-            "person": "Persona", "bicycle": "Bicicleta", "car": "Coche", "motorcycle": "Moto",
-            "bus": "Autobús", "truck": "Camión", "traffic light": "Semáforo", "stop sign": "Señal",
-            "bench": "Banco", "chair": "Silla", "couch": "Sofá", "bed": "Cama", "dining table": "Mesa",
-            "potted plant": "Maceta", "door": "Puerta"
+        // Mismo diccionario de objetos prioritarios
+        const OBJETOS_PRIORITARIOS = {
+            "person": "Persona", "bicycle": "Bicicleta", "car": "Coche", "bus": "Autobús", 
+            "truck": "Camión", "traffic light": "Semáforo", "stop sign": "Señal", "bench": "Banco", 
+            "chair": "Silla", "couch": "Sofá", "bed": "Cama", "dining table": "Mesa", "potted plant": "Maceta"
         };
 
         async function iniciarCopiloto() {
@@ -54,68 +55,66 @@
                 video.srcObject = stream;
 
                 video.onloadeddata = async () => {
-                    statusDiv.innerText = "Cargando motor de visión...";
+                    statusDiv.innerText = "Cargando modelo...";
                     modeloIA = await cocoSsd.load({ base: 'mobilenet_v2' });
                     statusDiv.innerText = "¡Copiloto Activo!";
                     hablar("Copiloto activo.");
                     detectando = true;
-                    requestAnimationFrame(escanearConFPS);
+                    requestAnimationFrame(procesarBuclePython);
                 };
             } catch (err) {
                 statusDiv.innerText = "Error de cámara: " + err.message;
             }
         }
 
-        async function escanearConFPS(tiempoActual) {
+        async function procesarBuclePython() {
             if (!detectando) return;
 
-            // Control estricto de marcos por segundo (FPS)
-            if (tiempoActual - ultimoEscaneoFPS >= INTERVALO_FPS) {
-                ultimoEscaneoFPS = tiempoActual;
+            contadorFotogramas++;
 
-                const predicciones = await modeloIA.detect(video, 5, 0.35);
+            // Mismo truco que en Python: Procesar solo 1 de cada 3 fotogramas (contadorFotogramas % 3 == 0)
+            if (contadorFotogramas % 3 === 0) {
+                const predicciones = await modeloIA.detect(video, 5, 0.40);
+                const tiempoActual = Date.now();
 
-                if (predicciones.length > 0 && tiempoActual - ultimoAviso > 3000) {
-                    let objetoPrincipal = predicciones[0];
-                    let maxArea = 0;
+                const anchoPantalla = video.videoWidth || 640;
+                const altoPantalla = video.videoHeight || 480;
+                const areaPantalla = anchoPantalla * altoPantalla;
 
-                    for (let p of predicciones) {
-                        let area = p.bbox[2] * p.bbox[3];
-                        if (area > maxArea) {
-                            maxArea = area;
-                            objetoPrincipal = p;
+                for (let pred of predicciones) {
+                    if (OBJETOS_PRIORITARIOS[pred.class]) {
+                        const [x, y, w, h] = pred.bbox;
+                        const cx = x + (w / 2);
+                        const areaObjeto = w * h;
+                        const proporcionArea = areaObjeto / areaPantalla;
+
+                        // Filtro de tamaño mínimo (5% de la pantalla)
+                        if (proporcionArea > 0.05) {
+                            if (tiempoActual - ultimoAvisoTiempo > intervaloAviso) {
+                                // Cálculo de posición igual que en Python
+                                let posicion = "al frente";
+                                if (cx < anchoPantalla * 0.35) posicion = "a la izquierda";
+                                else if (cx > anchoPantalla * 0.65) posicion = "a la derecha";
+
+                                // Cálculo de distancia exacto a Python por área
+                                let distancia = "a distancia de precaución";
+                                if (proporcionArea > 0.30) distancia = "muy cerca";
+                                else if (proporcionArea > 0.15) distancia = "cerca";
+
+                                const nombreObjeto = OBJETOS_PRIORITARIOS[pred.class];
+                                const mensaje = `${nombreObjeto} ${posicion}, ${distancia}`;
+                                
+                                statusDiv.innerText = "ALERTA: " + mensaje;
+                                hablar(mensaje);
+                                ultimoAvisoTiempo = tiempoActual;
+                                break; // Avisar del objeto principal y continuar
+                            }
                         }
-                    }
-
-                    if (traducciones[objetoPrincipal.class]) {
-                        const nombre = traducciones[objetoPrincipal.class];
-                        const [x, y, ancho, alto] = objetoPrincipal.bbox;
-                        
-                        const centroX = x + (ancho / 2);
-                        const centroY = y + (alto / 2);
-                        
-                        const anchoTotal = video.videoWidth || 640;
-                        const altoTotal = video.videoHeight || 480;
-
-                        // Posición Lateral
-                        let posLat = "al frente";
-                        if (centroX < anchoTotal * 0.35) posLat = "a la izquierda";
-                        else if (centroX > anchoTotal * 0.65) posLat = "a la derecha";
-
-                        // Altura
-                        let posAlt = "";
-                        if (centroY < altoTotal * 0.33) posAlt = "arriba";
-                        else if (centroY > altoTotal * 0.66) posAlt = "abajo";
-
-                        let mensaje = `${nombre} ${posLat} ${posAlt}`.trim();
-                        statusDiv.innerText = "Detectado: " + mensaje;
-                        hablar(mensaje);
-                        ultimoAviso = tiempoActual;
                     }
                 }
             }
-            
-            requestAnimationFrame(escanearConFPS);
+
+            requestAnimationFrame(procesarBuclePython);
         }
 
         function hablar(texto) {
