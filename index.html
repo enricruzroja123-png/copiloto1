@@ -1,60 +1,19 @@
+<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Copiloto Uno</title>
+    <!-- Cargamos el cerebro de la IA de Google para web -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #121212;
-            color: #ffffff;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-        }
-        h1 {
-            color: #00e676;
-            margin-bottom: 10px;
-            font-size: 24px;
-        }
-        #video-container {
-            position: relative;
-            width: 100%;
-            max-width: 500px;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0, 230, 118, 0.3);
-            background: #000;
-        }
-        video {
-            width: 100%;
-            height: auto;
-            display: block;
-        }
-        .btn {
-            background-color: #00e676;
-            color: #000;
-            border: none;
-            padding: 15px 30px;
-            font-size: 18px;
-            font-weight: bold;
-            border-radius: 30px;
-            margin-top: 20px;
-            cursor: pointer;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-        }
-        .btn:active {
-            transform: scale(0.98);
-        }
-        #status {
-            margin-top: 15px;
-            font-size: 14px;
-            color: #bbb;
-        }
+        body { font-family: Arial, sans-serif; background-color: #121212; color: #fff; margin: 0; padding: 20px; text-align: center; }
+        h1 { color: #00e676; }
+        #video-container { position: relative; width: 100%; max-width: 500px; margin: 0 auto; border-radius: 12px; overflow: hidden; background: #000; border: 2px solid #00e676; }
+        video { width: 100%; height: auto; display: block; }
+        .btn { background-color: #00e676; color: #000; padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 30px; margin-top: 20px; cursor: pointer; border: none; }
+        #status { margin-top: 15px; font-size: 16px; color: #ffeb3b; }
     </style>
 </head>
 <body>
@@ -66,37 +25,80 @@
     </div>
 
     <button class="btn" onclick="iniciarCopiloto()">ACTIVAR COPILOTO</button>
-    <div id="status">Presiona el botón para activar cámara y voz.</div>
+    <div id="status">Presiona para activar...</div>
 
     <script>
         const video = document.getElementById('webcam');
         const statusDiv = document.getElementById('status');
-        let vozActiva = false;
+        let modeloIA = null;
+        let detectando = false;
+        let ultimoAviso = 0;
+
+        // Diccionario para traducir objetos al español
+        const traducciones = {
+            "person": "persona", "bicycle": "bicicleta", "car": "coche", "motorcycle": "moto",
+            "bus": "autobús", "truck": "camión", "traffic light": "semáforo", "stop sign": "señal",
+            "bench": "banco", "chair": "silla", "couch": "sofá", "bed": "cama", "dining table": "mesa"
+        };
 
         async function iniciarCopiloto() {
+            statusDiv.innerText = "1/2 Iniciando cámara...";
             try {
-                // Solicitar acceso a la cámara trasera del móvil
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: "environment" } },
-                    audio: false
-                }).catch(() => {
-                    // Si falla la trasera (ej. en PC), usar cualquier cámara disponible
-                    return navigator.mediaDevices.getUserMedia({ video: true });
-                });
-
-                video.srcObject = stream;
-                statusDiv.innerText = "Cámara y voz del Copiloto activadas correctamente.";
+                    video: { facingMode: { exact: "environment" } }, audio: false
+                }).catch(() => navigator.mediaDevices.getUserMedia({ video: true }));
                 
-                // Probar motor de voz nativo del móvil
-                hablar("Copiloto Uno activado y listo.");
+                video.srcObject = stream;
+
+                // Esperar a que el video esté listo antes de cargar la IA
+                video.onloadeddata = async () => {
+                    statusDiv.innerText = "2/2 Cargando cerebro IA... (puede tardar unos segundos)";
+                    modeloIA = await cocoSsd.load();
+                    statusDiv.innerText = "¡Copiloto Activo! Escaneando entorno...";
+                    hablar("Copiloto uno activado. Escaneando.");
+                    detectando = true;
+                    escanearFotograma();
+                };
             } catch (err) {
-                statusDiv.innerText = "Error al acceder a la cámara: " + err.message;
+                statusDiv.innerText = "Error de cámara: " + err.message;
             }
+        }
+
+        async function escanearFotograma() {
+            if (!detectando) return;
+            
+            // Detectar objetos en el fotograma actual de la cámara
+            const predicciones = await modeloIA.detect(video);
+            
+            const tiempoActual = Date.now();
+            // Solo avisar cada 3.5 segundos para no saturar con la voz
+            if (predicciones.length > 0 && tiempoActual - ultimoAviso > 3500) {
+                // Coger el objeto más grande/seguro detectado
+                const objeto = predicciones[0]; 
+                
+                if (objeto.score > 0.5 && traducciones[objeto.class]) {
+                    const nombreEspañol = traducciones[objeto.class];
+                    
+                    // Calcular posición (izquierda, centro, derecha)
+                    const centroX = objeto.bbox[0] + (objeto.bbox[2] / 2);
+                    const anchoVideo = video.videoWidth;
+                    let posicion = "al frente";
+                    
+                    if (centroX < anchoVideo * 0.33) posicion = "a la izquierda";
+                    else if (centroX > anchoVideo * 0.66) posicion = "a la derecha";
+
+                    hablar(`${nombreEspañol} ${posicion}`);
+                    ultimoAviso = tiempoActual;
+                }
+            }
+            
+            // Repetir el bucle de escaneo de forma continua
+            requestAnimationFrame(escanearFotograma);
         }
 
         function hablar(texto) {
             if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel(); // Limpiar voz anterior
+                window.speechSynthesis.cancel();
                 const mensaje = new SpeechSynthesisUtterance(texto);
                 mensaje.lang = 'es-ES';
                 mensaje.rate = 1.0;
