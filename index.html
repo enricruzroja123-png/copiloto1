@@ -1,66 +1,70 @@
-<!DOCTYPE html>
+!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Copiloto Uno - Web</title>
-  <!-- Carga de TensorFlow.js y modelo COCO-SSD (equivalente a YOLO) -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <!-- Motores de TensorFlow.js y COCO-SSD -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
   <style>
     body {
       margin: 0;
       padding: 0;
       background-color: #121212;
       color: #ffffff;
-      font-family: sans-serif;
+      font-family: Arial, sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: flex-start;
       min-height: 100vh;
     }
     h1 {
-      font-size: 1.4rem;
-      margin: 10px 0;
+      font-size: 1.2rem;
+      margin: 15px 0 5px 0;
     }
-    #contenedor-video {
+    #contenedor-visor {
       position: relative;
-      width: 90%;
+      width: 95%;
       max-width: 640px;
-      aspect-ratio: 4 / 3;
       background: #000;
-      border-radius: 12px;
+      border-radius: 10px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
     }
-    video, canvas {
+    video {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    canvas {
       position: absolute;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
-      object-fit: cover;
-    }
-    /* Volteo de espejo para la cámara */
-    .espejo {
-      transform: scaleX(-1);
+      pointer-events: none;
     }
     #boton-iniciar {
-      margin-top: 15px;
-      padding: 15px 30px;
-      font-size: 1.1rem;
+      margin: 15px 0;
+      padding: 15px 25px;
+      font-size: 1rem;
       font-weight: bold;
       color: #fff;
-      background-color: #00e676;
+      background-color: #00c853;
       border: none;
       border-radius: 8px;
       cursor: pointer;
     }
-    #estado {
-      margin-top: 10px;
-      font-size: 0.9rem;
-      color: #aaa;
+    #panel-estado {
+      width: 90%;
+      max-width: 640px;
+      padding: 10px;
+      background: #1e1e1e;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: #00e676;
+      text-align: center;
     }
   </style>
 </head>
@@ -68,16 +72,15 @@
 
   <h1>COPILOTO UNO: WEB</h1>
   
-  <div id="contenedor-video">
-    <video id="webcam" autoplay playsinline class="espejo"></video>
-    <canvas id="canvas" class="espejo"></canvas>
+  <div id="contenedor-visor">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
   </div>
 
-  <button id="boton-iniciar">INICIAR COPILOTO</button>
-  <p id="estado">Presiona el botón para activar cámara y voz.</p>
+  <button id="boton-iniciar">INICIAR DETECCIÓN</button>
+  <div id="panel-estado">Estado: Presiona el botón para cargar la IA.</div>
 
   <script>
-    // Traducción y mapeo de objetos prioritarios según tu código Python
     const OBJETOS_TRADUCIDOS = {
       'person': 'Persona',
       'bicycle': 'Bicicleta',
@@ -97,39 +100,39 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const botonIniciar = document.getElementById('boton-iniciar');
-    const estadoText = document.getElementById('estado');
+    const panelEstado = document.getElementById('panel-estado');
 
     let model = null;
     let ultimoAvisoTiempo = 0;
-    const intervaloAviso = 2500; // 2.5 segundos en milisegundos
+    const intervaloAviso = 2500;
 
-    // Función de síntesis de voz nativa del navegador
     function hablar(texto) {
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); // Cancela lecturas pendientes
+        window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(texto);
         utterance.lang = 'es-ES';
-        utterance.rate = 1.1;
+        utterance.rate = 1.0;
         window.speechSynthesis.speak(utterance);
       }
-      console.log("ALERTA:", texto);
     }
 
-    // Inicializar la cámara trasera en móviles (o la webcam por defecto)
-    async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
+    async function iniciarCamara() {
+      const constraints = {
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false
-      });
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = stream;
+
       return new Promise((resolve) => {
-        video.onloadedmetadata = () => resolve(video);
+        video.onloadeddata = () => {
+          resolve(true);
+        };
       });
     }
 
-    // Bucle principal de detección
-    async function detectFrame() {
-      if (video.readyState === 4) {
+    async function bucleDeteccion() {
+      if (video.readyState >= 2 && model) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         
@@ -139,32 +142,35 @@
 
         ctx.clearRect(0, 0, anchoPantalla, altoPantalla);
 
-        // Realizar predicción con COCO-SSD
-        const predictions = await model.detect(video);
+        // Realizar predicción directa sobre el elemento de vídeo
+        const predictions = await model.detect(video, 10, 0.35);
+
+        let detectadosEnFotograma = 0;
 
         predictions.forEach(prediction => {
           const claseIngles = prediction.class;
 
-          if (OBJETOS_TRADUCIDOS[claseIngles] && prediction.score > 0.45) {
+          if (OBJETOS_TRADUCIDOS[claseIngles]) {
+            detectadosEnFotograma++;
             const [x1, y1, width, height] = prediction.bbox;
-            const x2 = x1 + width;
-            const y2 = y1 + height;
-
             const centroX = x1 + (width / 2);
             const areaObjeto = width * height;
             const proporcionArea = areaObjeto / areaTotal;
 
-            // Dibujar recuadro verde en pantalla
+            // Dibujar rectángulo de seguimiento
             ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 4;
             ctx.strokeRect(x1, y1, width, height);
 
-            if (proporcionArea > 0.05) {
+            ctx.fillStyle = '#00ff00';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText(OBJETOS_TRADUCIDOS[claseIngles], x1, y1 > 25 ? y1 - 10 : 25);
+
+            if (proporcionArea > 0.04) {
               const tiempoActual = Date.now();
 
               if (tiempoActual - ultimoAvisoTiempo > intervaloAviso) {
                 let posicion = "";
-                // Con la inversión en espejo activa, la posición x ajusta el campo visual directo
                 if (centroX < anchoPantalla * 0.35) {
                   posicion = "a la izquierda";
                 } else if (centroX > anchoPantalla * 0.65) {
@@ -174,9 +180,9 @@
                 }
 
                 let distancia = "";
-                if (proporcionArea > 0.30) {
+                if (proporcionArea > 0.25) {
                   distancia = "muy cerca";
-                } else if (proporcionArea > 0.15) {
+                } else if (proporcionArea > 0.12) {
                   distancia = "cerca";
                 } else {
                   distancia = "a distancia de precaución";
@@ -185,34 +191,38 @@
                 const nombreObjeto = OBJETOS_TRADUCIDOS[claseIngles];
                 const mensaje = `${nombreObjeto} ${posicion}, ${distancia}`;
 
-                // Dibujar texto en pantalla
-                ctx.fillStyle = '#00ff00';
-                ctx.font = '18px sans-serif';
-                ctx.fillText(mensaje, x1, y1 > 20 ? y1 - 10 : 20);
-
+                panelEstado.innerText = "Aviso: " + mensaje;
                 hablar(mensaje);
                 ultimoAvisoTiempo = tiempoActual;
               }
             }
           }
         });
+
+        if (detectadosEnFotograma === 0) {
+          panelEstado.innerText = "Estado: Analizando vídeo (Buscando objetos...)";
+        }
       }
-      requestAnimationFrame(detectFrame);
+      requestAnimationFrame(bucleDeteccion);
     }
 
-    // Evento de inicio al hacer clic en el botón
     botonIniciar.addEventListener('click', async () => {
       botonIniciar.disabled = true;
-      estadoText.innerText = "Cargando modelo de inteligencia artificial...";
-      
+      panelEstado.innerText = "Estado: Activando cámara...";
+
       try {
-        await setupCamera();
-        model = await cocoSsd.load();
-        estadoText.innerText = "Copiloto Activo - Detectando...";
+        await iniciarCamara();
+        panelEstado.innerText = "Estado: Descargando red neuronal COCO-SSD...";
+        
+        // Carga explícita del modelo ligero para móviles
+        model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        
+        panelEstado.innerText = "Estado: ¡Copiloto listo y detectando!";
         botonIniciar.style.display = 'none';
-        detectFrame();
+        
+        bucleDeteccion();
       } catch (err) {
-        estadoText.innerText = "Error al acceder a la cámara o cargar el modelo: " + err.message;
+        panelEstado.innerText = "Error: " + err.message;
         botonIniciar.disabled = false;
       }
     });
