@@ -1,131 +1,221 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Copiloto Uno - Motor Python a Web</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
-    <style>
-        body { font-family: Arial, sans-serif; background-color: #121212; color: #fff; margin: 0; padding: 15px; text-align: center; }
-        h1 { color: #00e676; font-size: 22px; margin-bottom: 5px; }
-        #video-container { position: relative; width: 100%; max-width: 500px; margin: 0 auto; border-radius: 12px; overflow: hidden; background: #000; border: 2px solid #00e676; }
-        video { width: 100%; height: auto; display: block; }
-        .btn { background-color: #00e676; color: #000; padding: 15px 30px; font-size: 18px; font-weight: bold; border-radius: 30px; margin-top: 15px; cursor: pointer; border: none; width: 100%; max-width: 300px; }
-        #status { margin-top: 12px; font-size: 15px; color: #ffeb3b; font-weight: bold; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Copiloto Uno - Web</title>
+  <!-- Carga de TensorFlow.js y modelo COCO-SSD (equivalente a YOLO) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #121212;
+      color: #ffffff;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin: 10px 0;
+    }
+    #contenedor-video {
+      position: relative;
+      width: 90%;
+      max-width: 640px;
+      aspect-ratio: 4 / 3;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    /* Volteo de espejo para la cámara */
+    .espejo {
+      transform: scaleX(-1);
+    }
+    #boton-iniciar {
+      margin-top: 15px;
+      padding: 15px 30px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #fff;
+      background-color: #00e676;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    #estado {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: #aaa;
+    }
+  </style>
 </head>
 <body>
 
-    <h1>COPILOTO UNO</h1>
-    
-    <div id="video-container">
-        <video id="webcam" autoplay playsinline muted></video>
-    </div>
+  <h1>COPILOTO UNO: WEB</h1>
+  
+  <div id="contenedor-video">
+    <video id="webcam" autoplay playsinline class="espejo"></video>
+    <canvas id="canvas" class="espejo"></canvas>
+  </div>
 
-    <button class="btn" onclick="iniciarCopiloto()">ACTIVAR COPILOTO</button>
-    <div id="status">Presiona para activar...</div>
+  <button id="boton-iniciar">INICIAR COPILOTO</button>
+  <p id="estado">Presiona el botón para activar cámara y voz.</p>
 
-    <script>
-        const video = document.getElementById('webcam');
-        const statusDiv = document.getElementById('status');
-        let modeloIA = null;
-        let detectando = false;
+  <script>
+    // Traducción y mapeo de objetos prioritarios según tu código Python
+    const OBJETOS_TRADUCIDOS = {
+      'person': 'Persona',
+      'bicycle': 'Bicicleta',
+      'car': 'Coche',
+      'bus': 'Autobús',
+      'truck': 'Camión',
+      'traffic light': 'Semáforo',
+      'stop sign': 'Señal',
+      'bench': 'Banco',
+      'chair': 'Silla',
+      'couch': 'Sofá',
+      'bed': 'Cama',
+      'dining table': 'Mesa'
+    };
+
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const botonIniciar = document.getElementById('boton-iniciar');
+    const estadoText = document.getElementById('estado');
+
+    let model = null;
+    let ultimoAvisoTiempo = 0;
+    const intervaloAviso = 2500; // 2.5 segundos en milisegundos
+
+    // Función de síntesis de voz nativa del navegador
+    function hablar(texto) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // Cancela lecturas pendientes
+        const utterance = new SpeechSynthesisUtterance(texto);
+        utterance.lang = 'es-ES';
+        utterance.rate = 1.1;
+        window.speechSynthesis.speak(utterance);
+      }
+      console.log("ALERTA:", texto);
+    }
+
+    // Inicializar la cámara trasera en móviles (o la webcam por defecto)
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false
+      });
+      video.srcObject = stream;
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => resolve(video);
+      });
+    }
+
+    // Bucle principal de detección
+    async function detectFrame() {
+      if (video.readyState === 4) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
         
-        // Variables calcadas de nuestro script de Python
-        let ultimoAvisoTiempo = 0;
-        const intervaloAviso = 2.5 * 1000; // 2.5 segundos entre avisos
-        let contadorFotogramas = 0;
+        const anchoPantalla = canvas.width;
+        const altoPantalla = canvas.height;
+        const areaTotal = anchoPantalla * altoPantalla;
 
-        // Mismo diccionario de objetos prioritarios
-        const OBJETOS_PRIORITARIOS = {
-            "person": "Persona", "bicycle": "Bicicleta", "car": "Coche", "bus": "Autobús", 
-            "truck": "Camión", "traffic light": "Semáforo", "stop sign": "Señal", "bench": "Banco", 
-            "chair": "Silla", "couch": "Sofá", "bed": "Cama", "dining table": "Mesa", "potted plant": "Maceta"
-        };
+        ctx.clearRect(0, 0, anchoPantalla, altoPantalla);
 
-        async function iniciarCopiloto() {
-            statusDiv.innerText = "Iniciando cámara...";
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
-                    audio: false
-                }).catch(() => navigator.mediaDevices.getUserMedia({ video: true }));
-                
-                video.srcObject = stream;
+        // Realizar predicción con COCO-SSD
+        const predictions = await model.detect(video);
 
-                video.onloadeddata = async () => {
-                    statusDiv.innerText = "Cargando modelo...";
-                    modeloIA = await cocoSsd.load({ base: 'mobilenet_v2' });
-                    statusDiv.innerText = "¡Copiloto Activo!";
-                    hablar("Copiloto activo.");
-                    detectando = true;
-                    requestAnimationFrame(procesarBuclePython);
-                };
-            } catch (err) {
-                statusDiv.innerText = "Error de cámara: " + err.message;
-            }
-        }
+        predictions.forEach(prediction => {
+          const claseIngles = prediction.class;
 
-        async function procesarBuclePython() {
-            if (!detectando) return;
+          if (OBJETOS_TRADUCIDOS[claseIngles] && prediction.score > 0.45) {
+            const [x1, y1, width, height] = prediction.bbox;
+            const x2 = x1 + width;
+            const y2 = y1 + height;
 
-            contadorFotogramas++;
+            const centroX = x1 + (width / 2);
+            const areaObjeto = width * height;
+            const proporcionArea = areaObjeto / areaTotal;
 
-            // Mismo truco que en Python: Procesar solo 1 de cada 3 fotogramas (contadorFotogramas % 3 == 0)
-            if (contadorFotogramas % 3 === 0) {
-                const predicciones = await modeloIA.detect(video, 5, 0.40);
-                const tiempoActual = Date.now();
+            // Dibujar recuadro verde en pantalla
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x1, y1, width, height);
 
-                const anchoPantalla = video.videoWidth || 640;
-                const altoPantalla = video.videoHeight || 480;
-                const areaPantalla = anchoPantalla * altoPantalla;
+            if (proporcionArea > 0.05) {
+              const tiempoActual = Date.now();
 
-                for (let pred of predicciones) {
-                    if (OBJETOS_PRIORITARIOS[pred.class]) {
-                        const [x, y, w, h] = pred.bbox;
-                        const cx = x + (w / 2);
-                        const areaObjeto = w * h;
-                        const proporcionArea = areaObjeto / areaPantalla;
-
-                        // Filtro de tamaño mínimo (5% de la pantalla)
-                        if (proporcionArea > 0.05) {
-                            if (tiempoActual - ultimoAvisoTiempo > intervaloAviso) {
-                                // Cálculo de posición igual que en Python
-                                let posicion = "al frente";
-                                if (cx < anchoPantalla * 0.35) posicion = "a la izquierda";
-                                else if (cx > anchoPantalla * 0.65) posicion = "a la derecha";
-
-                                // Cálculo de distancia exacto a Python por área
-                                let distancia = "a distancia de precaución";
-                                if (proporcionArea > 0.30) distancia = "muy cerca";
-                                else if (proporcionArea > 0.15) distancia = "cerca";
-
-                                const nombreObjeto = OBJETOS_PRIORITARIOS[pred.class];
-                                const mensaje = `${nombreObjeto} ${posicion}, ${distancia}`;
-                                
-                                statusDiv.innerText = "ALERTA: " + mensaje;
-                                hablar(mensaje);
-                                ultimoAvisoTiempo = tiempoActual;
-                                break; // Avisar del objeto principal y continuar
-                            }
-                        }
-                    }
+              if (tiempoActual - ultimoAvisoTiempo > intervaloAviso) {
+                let posicion = "";
+                // Con la inversión en espejo activa, la posición x ajusta el campo visual directo
+                if (centroX < anchoPantalla * 0.35) {
+                  posicion = "a la izquierda";
+                } else if (centroX > anchoPantalla * 0.65) {
+                  posicion = "a la derecha";
+                } else {
+                  posicion = "al frente";
                 }
-            }
 
-            requestAnimationFrame(procesarBuclePython);
-        }
+                let distancia = "";
+                if (proporcionArea > 0.30) {
+                  distancia = "muy cerca";
+                } else if (proporcionArea > 0.15) {
+                  distancia = "cerca";
+                } else {
+                  distancia = "a distancia de precaución";
+                }
 
-        function hablar(texto) {
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
-                const mensaje = new SpeechSynthesisUtterance(texto);
-                mensaje.lang = 'es-ES';
-                mensaje.rate = 1.0;
-                window.speechSynthesis.speak(mensaje);
+                const nombreObjeto = OBJETOS_TRADUCIDOS[claseIngles];
+                const mensaje = `${nombreObjeto} ${posicion}, ${distancia}`;
+
+                // Dibujar texto en pantalla
+                ctx.fillStyle = '#00ff00';
+                ctx.font = '18px sans-serif';
+                ctx.fillText(mensaje, x1, y1 > 20 ? y1 - 10 : 20);
+
+                hablar(mensaje);
+                ultimoAvisoTiempo = tiempoActual;
+              }
             }
-        }
-    </script>
+          }
+        });
+      }
+      requestAnimationFrame(detectFrame);
+    }
+
+    // Evento de inicio al hacer clic en el botón
+    botonIniciar.addEventListener('click', async () => {
+      botonIniciar.disabled = true;
+      estadoText.innerText = "Cargando modelo de inteligencia artificial...";
+      
+      try {
+        await setupCamera();
+        model = await cocoSsd.load();
+        estadoText.innerText = "Copiloto Activo - Detectando...";
+        botonIniciar.style.display = 'none';
+        detectFrame();
+      } catch (err) {
+        estadoText.innerText = "Error al acceder a la cámara o cargar el modelo: " + err.message;
+        botonIniciar.disabled = false;
+      }
+    });
+  </script>
 </body>
 </html>
