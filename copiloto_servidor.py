@@ -17,6 +17,7 @@ ultima_deteccion = {'texto': '', 'timestamp': 0}
 
 def generar_frames():
     global ultima_deteccion
+    # Intentar abrir la cámara del sistema
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not cap.isOpened():
         cap = cv2.VideoCapture(0)
@@ -26,7 +27,6 @@ def generar_frames():
         if not ret:
             break
 
-        frame = cv2.flip(frame, 1)
         ancho_pantalla = frame.shape[1]
         alto_pantalla = frame.shape[0]
         area_total = ancho_pantalla * alto_pantalla
@@ -38,7 +38,7 @@ def generar_frames():
                 cls_id = int(box.cls[0])
                 conf = float(box.conf[0])
 
-                if cls_id in OBJETOS_PRIORITARIOS and conf > 0.50:
+                if cls_id in OBJETOS_PRIORITARIOS and conf > 0.45:
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     centro_x = (x1 + x2) // 2
                     area_objeto = (x2 - x1) * (y2 - y1)
@@ -52,10 +52,10 @@ def generar_frames():
                         else:
                             posicion = "al frente"
 
-                        if proporcion_area > 0.20:
+                        if proporcion_area > 0.18:
                             distancia_texto = "muy cerca, atención"
                             es_emergencia = True
-                        elif proporcion_area > 0.08:
+                        elif proporcion_area > 0.07:
                             distancia_texto = "cerca"
                             es_emergencia = False
                         else:
@@ -66,10 +66,10 @@ def generar_frames():
                         
                         if es_emergencia:
                             texto_voz = f"Peligro, {nombre} {distancia_texto} {posicion}"
-                            tiempo_espera = 1.2
+                            tiempo_espera = 1.0
                         else:
                             texto_voz = f"{nombre} {distancia_texto}, {posicion}"
-                            tiempo_espera = 2.5
+                            tiempo_espera = 2.2
 
                         if time.time() - ultima_deteccion['timestamp'] > tiempo_espera:
                             ultima_deteccion = {'texto': texto_voz, 'timestamp': time.time()}
@@ -95,16 +95,38 @@ def index():
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Copiloto Uno</title>
             <style>
-                body { background: #121212; color: white; text-align: center; font-family: sans-serif; margin: 0; padding: 15px; }
-                h1 { font-size: 1.4rem; color: #00e676; margin-bottom: 10px; }
-                img { width: 100%; max-width: 640px; border-radius: 10px; border: 3px solid #00e676; }
-                #btnAudio { background: #00e676; color: black; border: none; padding: 12px 24px; font-weight: bold; font-size: 1rem; border-radius: 20px; margin-bottom: 15px; cursor: pointer; }
+                body { 
+                    background: #121212; 
+                    color: white; 
+                    text-align: center; 
+                    font-family: sans-serif; 
+                    margin: 0; 
+                    padding: 15px; 
+                }
+                h1 { font-size: 1.5rem; color: #00e676; margin-bottom: 15px; }
+                img.feed { 
+                    width: 100%; 
+                    max-width: 640px; 
+                    border-radius: 10px; 
+                    border: 3px solid #00e676; 
+                }
+                #btnAudio { 
+                    background: #00e676; 
+                    color: black; 
+                    border: none; 
+                    padding: 15px 25px; 
+                    font-weight: bold; 
+                    font-size: 1.1rem; 
+                    border-radius: 15px; 
+                    margin-bottom: 15px; 
+                    cursor: pointer; 
+                }
             </style>
         </head>
         <body>
             <h1>COPILOTO UNO</h1>
             <button id="btnAudio" onclick="activarVoz()">Activar Audio de Voz</button><br>
-            <img src="{{ url_for('video_feed') }}" id="videoFeed">
+            <img src="{{ url_for('video_feed') }}" class="feed">
 
             <script>
                 let vozActivada = false;
@@ -155,7 +177,7 @@ def index():
                                 hablar(data.texto, esEmergencia);
                             }
                         });
-                }, 500);
+                }, 400);
             </script>
         </body>
         </html>
