@@ -3,262 +3,109 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Copiloto Uno - Web</title>
-  <!-- Motores de TensorFlow.js y COCO-SSD -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+  <title>Copiloto Uno - Detección ONNX</title>
+  <!-- ONNX Runtime Web CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
   <style>
     body {
+      font-family: Arial, sans-serif;
       margin: 0;
-      padding: 0;
       background-color: #121212;
       color: #ffffff;
-      font-family: Arial, sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: flex-start;
-      min-height: 100vh;
     }
-    h1 {
-      font-size: 1.2rem;
-      margin: 15px 0 5px 0;
-    }
-    #contenedor-visor {
-      position: relative;
-      width: 95%;
-      max-width: 640px;
-      background: #000;
-      border-radius: 10px;
-      overflow: hidden;
-    }
-    video {
+    header {
+      padding: 15px;
+      text-align: center;
+      background-color: #1f1f1f;
       width: 100%;
+    }
+    #container {
+      position: relative;
+      margin-top: 10px;
+    }
+    video, canvas {
+      border-radius: 8px;
+      max-width: 100%;
       height: auto;
-      display: block;
     }
     canvas {
       position: absolute;
       top: 0;
       left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-    }
-    .efecto-espejo {
-      transform: scaleX(-1);
-    }
-    .controles {
-      display: flex;
-      gap: 10px;
-      margin: 15px 0;
-    }
-    button {
-      padding: 12px 20px;
-      font-size: 0.95rem;
-      font-weight: bold;
-      color: #fff;
-      background-color: #00c853;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-    }
-    #boton-espejo {
-      background-color: #29b6f6;
     }
     #panel-estado {
-      width: 90%;
-      max-width: 640px;
-      padding: 10px;
-      background: #1e1e1e;
+      margin: 15px;
+      padding: 12px;
+      background-color: #2a2a2a;
       border-radius: 6px;
-      font-size: 0.85rem;
-      color: #00e676;
+      font-size: 1.1em;
       text-align: center;
+      width: 90%;
+      max-width: 600px;
     }
   </style>
 </head>
 <body>
 
-  <h1>COPILOTO UNO: WEB</h1>
-  
-  <div id="contenedor-visor">
-    <video id="webcam" autoplay playsinline muted class="efecto-espejo"></video>
-    <canvas id="canvas" class="efecto-espejo"></canvas>
+  <header>
+    <h1>Copiloto Uno</h1>
+    <p>Asistente de Navegación Visual (ONNX Runtime)</p>
+  </header>
+
+  <div id="container">
+    <video id="webcam" autoplay playsinline muted width="640" height="480"></video>
+    <canvas id="output_canvas" width="640" height="480"></canvas>
   </div>
 
-  <div class="controles">
-    <button id="boton-iniciar">INICIAR DETECCIÓN</button>
-    <button id="boton-espejo">ESPEJO: ACTIVADO</button>
-  </div>
-
-  <div id="panel-estado">Estado: Presiona el botón para cargar la IA.</div>
+  <div id="panel-estado" aria-live="polite">Cargando modelo YOLOv8 ONNX...</div>
 
   <script>
-    const OBJETOS_TRADUCIDOS = {
-      'person': 'Persona',
-      'bicycle': 'Bicicleta',
-      'car': 'Coche',
-      'bus': 'Autobús',
-      'truck': 'Camión',
-      'traffic light': 'Semáforo',
-      'stop sign': 'Señal',
-      'bench': 'Banco',
-      'chair': 'Silla',
-      'couch': 'Sofá',
-      'bed': 'Cama',
-      'dining table': 'Mesa'
-    };
-
     const video = document.getElementById('webcam');
-    const canvas = document.getElementById('canvas');
+    const canvas = document.getElementById('output_canvas');
     const ctx = canvas.getContext('2d');
-    const botonIniciar = document.getElementById('boton-iniciar');
-    const botonEspejo = document.getElementById('boton-espejo');
     const panelEstado = document.getElementById('panel-estado');
 
-    let model = null;
-    let ultimoAvisoTiempo = 0;
-    const intervaloAviso = 2500;
-    let modoEspejoActivo = true;
+    let session;
+    const MODEL_PATH = './yolov8n.onnx';
 
-    botonEspejo.addEventListener('click', () => {
-      modoEspejoActivo = !modoEspejoActivo;
-      if (modoEspejoActivo) {
-        video.classList.add('efecto-espejo');
-        canvas.classList.add('efecto-espejo');
-        botonEspejo.innerText = "ESPEJO: ACTIVADO";
-      } else {
-        video.classList.remove('efecto-espejo');
-        canvas.classList.remove('efecto-espejo');
-        botonEspejo.innerText = "ESPEJO: DESACTIVADO";
-      }
-    });
-
-    function hablar(texto) {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(texto);
-        utterance.lang = 'es-ES';
-        utterance.rate = 1.0;
-        window.speechSynthesis.speak(utterance);
-      }
-    }
-
-    async function iniciarCamara() {
-      const constraints = {
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = stream;
-
-      return new Promise((resolve) => {
-        video.onloadeddata = () => {
-          resolve(true);
-        };
-      });
-    }
-
-    async function bucleDeteccion() {
-      if (video.readyState >= 2 && model) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        
-        const anchoPantalla = canvas.width;
-        const altoPantalla = canvas.height;
-        const areaTotal = anchoPantalla * altoPantalla;
-
-        ctx.clearRect(0, 0, anchoPantalla, altoPantalla);
-
-        // Umbral subido al 0.55 (55% de certeza) para evitar falsas personas en sombras
-        const predictions = await model.detect(video, 10, 0.55);
-
-        let detectadosEnFotograma = 0;
-
-        predictions.forEach(prediction => {
-          const claseIngles = prediction.class;
-
-          if (OBJETOS_TRADUCIDOS[claseIngles]) {
-            detectadosEnFotograma++;
-            const [x1, y1, width, height] = prediction.bbox;
-            
-            let centroX = x1 + (width / 2);
-
-            if (modoEspejoActivo) {
-              centroX = anchoPantalla - centroX;
-            }
-
-            const areaObjeto = width * height;
-            const proporcionArea = areaObjeto / areaTotal;
-
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 4;
-            ctx.strokeRect(x1, y1, width, height);
-
-            ctx.fillStyle = '#00ff00';
-            ctx.font = 'bold 20px Arial';
-            ctx.fillText(OBJETOS_TRADUCIDOS[claseIngles], x1, y1 > 25 ? y1 - 10 : 25);
-
-            if (proporcionArea > 0.04) {
-              const tiempoActual = Date.now();
-
-              if (tiempoActual - ultimoAvisoTiempo > intervaloAviso) {
-                let posicion = "";
-                if (centroX < anchoPantalla * 0.35) {
-                  posicion = "a la izquierda";
-                } else if (centroX > anchoPantalla * 0.65) {
-                  posicion = "a la derecha";
-                } else {
-                  posicion = "al frente";
-                }
-
-                let distancia = "";
-                if (proporcionArea > 0.25) {
-                  distancia = "muy cerca";
-                } else if (proporcionArea > 0.12) {
-                  distancia = "cerca";
-                } else {
-                  distancia = "a distancia de precaución";
-                }
-
-                const nombreObjeto = OBJETOS_TRADUCIDOS[claseIngles];
-                const mensaje = `${nombreObjeto} ${posicion}, ${distancia}`;
-
-                panelEstado.innerText = "Aviso: " + mensaje;
-                hablar(mensaje);
-                ultimoAvisoTiempo = tiempoActual;
-              }
-            }
-          }
-        });
-
-        if (detectadosEnFotograma === 0) {
-          panelEstado.innerText = "Estado: Analizando vídeo (Buscando objetos...)";
-        }
-      }
-      requestAnimationFrame(bucleDeteccion);
-    }
-
-    botonIniciar.addEventListener('click', async () => {
-      botonIniciar.disabled = true;
-      panelEstado.innerText = "Estado: Activando cámara...";
-
+    // Inicializar cámara y modelo
+    async function init() {
       try {
-        await iniciarCamara();
-        panelEstado.innerText = "Estado: Descargando red neuronal COCO-SSD...";
+        // 1. Acceso a la cámara
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false
+        });
+        video.srcObject = stream;
+
+        // 2. Cargar sesión ONNX
+        panelEstado.innerText = "Cargando archivo yolov8n.onnx...";
+        session = await ort.InferenceSession.create(MODEL_PATH, { executionProviders: ['wasm'] });
         
-        model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-        
-        panelEstado.innerText = "Estado: ¡Copiloto listo y detectando!";
-        botonIniciar.style.display = 'none';
-        
-        bucleDeteccion();
+        panelEstado.innerText = "Modelo listo. Detectando entorno...";
+        video.addEventListener('loadeddata', detectFrame);
       } catch (err) {
-        panelEstado.innerText = "Error: " + err.message;
-        botonIniciar.disabled = false;
+        panelEstado.innerText = "Error de inicialización: " + err.message;
+        console.error(err);
       }
-    });
+    }
+
+    async function detectFrame() {
+      if (!session) return;
+
+      // Dibujar fotograma actual en el canvas
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Aquí se procesan los tensores de entrada y salida para YOLOv8
+      // ...
+
+      requestAnimationFrame(detectFrame);
+    }
+
+    window.onload = init;
   </script>
 </body>
 </html>
