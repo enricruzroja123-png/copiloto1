@@ -1,17 +1,11 @@
-ara que el navegador ejecute directamente el modelo YOLOv8 ONNX, el archivo HTML debe utilizar la librería ONNX Runtime Web (onnxruntime-web) en lugar de coco-ssd.
-
-Código Actualizado para index.html con Soporte ONNX
-A continuación tienes el código del index.html adaptado para cargar directamente el fichero yolov8n.onnx mediante ONNX Runtime:
-
-HTML
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Copiloto Uno - Detección ONNX</title>
-  <!-- ONNX Runtime Web CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <!-- Cargamos la librería ONNX Runtime Web oficial -->
+  <script src="[https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js](https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js)"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -58,7 +52,7 @@ HTML
 
   <header>
     <h1>Copiloto Uno</h1>
-    <p>Asistente de Navegación Visual (ONNX Runtime)</p>
+    <p>Asistente de Navegación Visual (YOLOv8 ONNX)</p>
   </header>
 
   <div id="container">
@@ -77,38 +71,22 @@ HTML
     let session;
     const MODEL_PATH = './yolov8n.onnx';
 
-    // Inicializar cámara y modelo
     async function init() {
       try {
-        // 1. Acceso a la cámara
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment' },
           audio: false
         });
         video.srcObject = stream;
 
-        // 2. Cargar sesión ONNX
         panelEstado.innerText = "Cargando archivo yolov8n.onnx...";
         session = await ort.InferenceSession.create(MODEL_PATH, { executionProviders: ['wasm'] });
         
-        panelEstado.innerText = "Modelo listo. Detectando entorno...";
-        video.addEventListener('loadeddata', detectFrame);
+        panelEstado.innerText = "Modelo ONNX cargado correctamente. Detectando...";
       } catch (err) {
-        panelEstado.innerText = "Error de inicialización: " + err.message;
+        panelEstado.innerText = "Error: " + err.message;
         console.error(err);
       }
-    }
-
-    async function detectFrame() {
-      if (!session) return;
-
-      // Dibujar fotograma actual en el canvas
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      // Aquí se procesan los tensores de entrada y salida para YOLOv8
-      // ...
-
-      requestAnimationFrame(detectFrame);
     }
 
     window.onload = init;
