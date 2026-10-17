@@ -4,8 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Copiloto Uno - Detección ONNX</title>
-  <!-- Cargamos la librería ONNX Runtime Web oficial -->
-  <script src="[https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js](https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js)"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -47,6 +45,8 @@
       max-width: 600px;
     }
   </style>
+  <!-- Carga diferida garantizada de ONNX Runtime Web -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.3/dist/ort.min.js"></script>
 </head>
 <body>
 
@@ -60,7 +60,7 @@
     <canvas id="output_canvas" width="640" height="480"></canvas>
   </div>
 
-  <div id="panel-estado" aria-live="polite">Cargando modelo YOLOv8 ONNX...</div>
+  <div id="panel-estado" aria-live="polite">Iniciando aplicación...</div>
 
   <script>
     const video = document.getElementById('webcam');
@@ -72,7 +72,15 @@
     const MODEL_PATH = './yolov8n.onnx';
 
     async function init() {
+      // 1. Verificar si la librería ort está disponible globalmente
+      if (typeof ort === 'undefined') {
+        panelEstado.innerText = "Error: No se pudo cargar la librería ONNX Runtime. Revisa tu conexión a internet.";
+        console.error("ONNX Runtime Web (ort) no se encuentra definido.");
+        return;
+      }
+
       try {
+        panelEstado.innerText = "Solicitando acceso a la cámara...";
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment' },
           audio: false
@@ -80,16 +88,22 @@
         video.srcObject = stream;
 
         panelEstado.innerText = "Cargando archivo yolov8n.onnx...";
+        
+        // Configurar ruta de WebAssembly para evitar bloqueos
+        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.3/dist/';
+
+        // Crear la sesión de inferencia
         session = await ort.InferenceSession.create(MODEL_PATH, { executionProviders: ['wasm'] });
         
-        panelEstado.innerText = "Modelo ONNX cargado correctamente. Detectando...";
+        panelEstado.innerText = "Modelo ONNX cargado correctamente. Listo para procesar.";
       } catch (err) {
-        panelEstado.innerText = "Error: " + err.message;
-        console.error(err);
+        panelEstado.innerText = "Error al iniciar: " + err.message;
+        console.error("Detalle del error:", err);
       }
     }
 
-    window.onload = init;
+    // Esperar a que toda la página y los scripts de la CDN hayan cargado
+    window.addEventListener('load', init);
   </script>
 </body>
 </html>
